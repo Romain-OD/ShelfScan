@@ -1,0 +1,5 @@
+<Solution>
+  <Project Path="ShelfScan.App/ShelfScan.App.csproj" />
+  <Project Path="ShelfScan.Core.Tests/ShelfScan.Core.Tests.csproj" />
+  <Project Path="ShelfScan.Core/ShelfScan.Core.csproj" />
+</Solution>

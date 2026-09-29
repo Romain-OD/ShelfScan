@@ -10,6 +10,7 @@ namespace ShelfScan.Core;
     PropertyNamingPolicy = JsonKnownNamingPolicy.SnakeCaseLower,
     DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull)]
 [JsonSerializable(typeof(List<Book>))]
+[JsonSerializable(typeof(SearchResponse))]
 internal sealed partial class ShelfJson : JsonSerializerContext
 {
 }

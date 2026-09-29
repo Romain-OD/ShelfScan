@@ -111,3 +111,43 @@ Decisions:
 - Plain MSTest `Assert`, a temp file per test, no mocks.
 
 Result: 3 tests pass (129 ms). `ShelfScan.Core` builds with 0 warnings, trim/AOT analyzers on.
+
+## Step 04 · Open Library client (`step-04-openlibrary-client`)
+
+Files: `ShelfScan.Core/OpenLibraryClient.cs` (+ two DTO records), `ShelfJson.cs` gains
+`[JsonSerializable(typeof(SearchResponse))]`, test in `OpenLibraryClientTests.cs`.
+
+First a real request, to know the exact response shape:
+
+```powershell
+curl.exe -A "ShelfScan/1.0 (+https://github.com/Romain-OD/ShelfScan)" "https://openlibrary.org/search.json?q=moby%20dick%20herman%20melville&fields=key,title,author_name,first_publish_year,cover_i&limit=3"
+```
+
+```json
+{"numFound":967, ..., "docs":[
+ {"author_name":["Herman Melville"],"cover_i":10544254,"first_publish_year":1851,"key":"/works/OL102749W","title":"Moby Dick"},
+ {"author_name":["Herman Melville"],"first_publish_year":2019,"key":"/works/OL30237660W","title":"Moby Dick"}, ...]}
+```
+
+Decisions:
+
+- **`fields=` + `limit=5`**: ask only for the five fields the app shows. The payload stays
+  small, and Open Library does less work per request.
+- **Snake_case everywhere**: the `ShelfJson` naming policy from step 03 already maps
+  `AuthorName` to `author_name` and `CoverI` to `cover_i`, so the DTOs need no `[JsonPropertyName]`.
+  Deserializing uses `ReadFromJsonAsync(ShelfJson.Default.SearchResponse)`, the source-generated
+  path with no reflection.
+- **Self-contained requests**: the client builds an absolute URL and sets the `User-Agent`
+  on each request, so any `HttpClient` works and there's no DI configuration to forget.
+- **API etiquette** ([developers/api](https://openlibrary.org/developers/api)): identify the
+  app with a `User-Agent`, cache when possible, and don't bulk-harvest. Unidentified requests get
+  1 request/s, and a contact *email* in the UA raises that to 3/s. `ponytail:` the UA carries
+  the repo URL, not a personal email, because one scan makes one request. The offline
+  "already own it?" check (step 03) runs *before* any network call, so the local shelf acts
+  as the cache.
+- Duplicate works (three "Moby Dick" works above) are real Open Library data. The UI shows
+  covers and years so you can pick the right one.
+- The test uses a canned `HttpMessageHandler` (no mocking library). It checks the exact URL,
+  the UA header, and the mapping, including a doc with no author/cover/year.
+
+Result: 4 tests pass. `ShelfScan.Core` builds with 0 warnings.

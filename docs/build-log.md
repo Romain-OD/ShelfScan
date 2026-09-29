@@ -186,3 +186,59 @@ Decisions:
 - The offline "already own it?" check (step 03) uses **all** OCR text, not this query.
 
 Result: 7 tests pass. `ShelfScan.Core` builds with 0 warnings.
+
+## Step 06 · Android OCR with ML Kit (`step-06-ocr-android`)
+
+Files: `ShelfScan.App/Ocr.cs` (shared `static partial` declaration),
+`Platforms/Android/Ocr.Android.cs` (ML Kit), `Platforms/iOS/Ocr.iOS.cs` (placeholder until
+step 07), csproj.
+
+**Bundled or unbundled?** From Google's
+[text recognition v2 docs](https://developers.google.com/ml-kit/vision/text-recognition/v2/android):
+
+| | Unbundled `play-services-mlkit-text-recognition` | Bundled `com.google.mlkit:text-recognition` |
+|---|---|---|
+| Model | downloaded by Google Play services | linked into the app |
+| Size | about 260 KB per architecture | about 4 MB per architecture |
+| First use | may wait for the download | available immediately |
+
+A shelf scanner should work in a bookshop basement with no signal, on its first launch, so we
+use **bundled**: NuGet `Xamarin.Google.MLKit.TextRecognition` 116.0.1.9 (binds 16.0.1, has a
+`net10.0-android36.0` build). It also depends on the Play Services package, and so does
+Google's own POM. That package holds the API classes, and `text-recognition-bundled-common`
+adds the model.
+
+Three build fixes, each for a reason:
+
+1. **NU1608**: ML Kit brings newer AndroidX packages than MAUI 10.0.20's `*.Ktx` companions
+   allow (for example, `Fragment.Ktx 1.8.8.1` requires `Fragment < 1.8.9`, and 1.9.0 is
+   resolved). We reference the four companions at the matching versions (`Collection.Ktx
+   1.6.0.1`, `Fragment.Ktx 1.9.0`, `Lifecycle.LiveData 2.11.0.1`,
+   `Lifecycle.LiveData.Core.Ktx 2.11.0.1`) instead of `NoWarn`. Restore is clean.
+2. **minSdk 21 → 23**: `androidx.tracing` (transitive) declares minSdk 23, so the manifest
+   merge fails. Android 6 is a fine floor for 2026. `tools:overrideLibrary` "may lead to
+   runtime failures", so we don't use it.
+3. The binding's XML docs are empty, so the .NET names (`TextRecognizerOptions.DefaultOptions`,
+   `ITextRecognizer.Process`, `Text.TextBlocks[].Lines[].BoundingBox`,
+   `Android.Gms.Extensions.AsAsync<T>()`) were read from the assemblies' metadata.
+
+Code decisions:
+
+- `static partial` method, declared once and implemented per platform. The compiler refuses
+  to build a platform that lacks an implementation, and there's no interface/DI for a single
+  static call. Until step 07, the iOS part throws `PlatformNotSupportedException`, which keeps
+  this tag building.
+- `InputImage.FromFilePath` applies the photo's EXIF rotation. One `ITextRecognizer` for the
+  app's lifetime, as ML Kit recommends. `AsAsync<Text>()` turns the Play Services `Task` into
+  an awaitable .NET `Task`.
+- Each ML Kit line becomes `OcrLine(text, box height in px)`, and the rest is step 05's shared code.
+
+On Windows, the iOS build now warns *"The linker has been disabled because there's no
+connection to a Mac"*. That comes from `PublishAot` (NativeAOT links during the iOS build).
+Building with `-p:PublishAot=false` gives 0 warnings. C# still compiles on Windows, and the
+real iOS gate is the macOS CI job (step 11).
+
+Result: Release `dotnet publish -f net10.0-android` took 110 s with **0 warnings** under full trim
+and full AOT. The universal APK (arm64 + x64) went from 31.97 MB to **42.97 MB**:
+`libmlkit_google_ocr_pipeline.so` is 4.2 MB compressed per ABI, plus 1 MB of `.tflite` models and
+the ML Kit/Play Services dex. That matches Google's "about 4 MB per architecture".

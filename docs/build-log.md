@@ -242,3 +242,28 @@ Result: Release `dotnet publish -f net10.0-android` took 110 s with **0 warnings
 and full AOT. The universal APK (arm64 + x64) went from 31.97 MB to **42.97 MB**:
 `libmlkit_google_ocr_pipeline.so` is 4.2 MB compressed per ABI, plus 1 MB of `.tflite` models and
 the ML Kit/Play Services dex. That matches Google's "about 4 MB per architecture".
+
+## Step 07 · iOS OCR with Apple Vision (`step-07-ocr-ios`)
+
+File: `Platforms/iOS/Ocr.iOS.cs` replaces the placeholder. No package: Vision ships with iOS.
+
+- `VNRecognizeTextRequest` defaults are already right for a cover (Accurate level, language
+  correction on), so the only setting is `RecognitionLanguages = ["en-US", "fr-FR"]`. That
+  matches Android, where ML Kit's Latin model reads both without configuration.
+- `VNImageRequestHandler(NSUrl, VNImageOptions)` reads the photo file. **Orientation**: the
+  camera call in step 08 uses .NET 10's `MediaPickerOptions.RotateImage = true`, which, per its
+  [API docs](https://learn.microsoft.com/dotnet/api/microsoft.maui.media.mediapickeroptions.rotateimage),
+  rotates the image "based on EXIF orientation data". Both engines get upright pixels.
+- `Perform` is synchronous and CPU-heavy, so it runs in `Task.Run`. A failure becomes an
+  `NSErrorException`.
+- Vision boxes are normalized (0..1) with the origin at the **bottom-left**, so lines are sorted
+  by descending `Y` to read the cover top to bottom. Each line becomes
+  `OcrLine(TopCandidates(1)[0].String, box height)`. `OcrQuery` compares heights only relative
+  to each other, so pixels (Android) and fractions (iOS) both work.
+- Signatures are checked by compiling for `net10.0-ios` on Windows. The docs in
+  `Microsoft.iOS.xml` just link to Apple. The compile shows that the completion handler accepts
+  `null`, `Results` is `VNRecognizedTextObservation[]?`, and `Perform` has `out NSError?`.
+
+Result: `dotnet build -f net10.0-ios -p:PublishAot=false` gives 0 warnings. The solution builds.
+The one warning is the known no-Mac linker notice from step 06, and 7 tests pass. **Not
+device-tested** (no Mac): the NativeAOT publish is verified in GitHub Actions in step 11.

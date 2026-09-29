@@ -372,7 +372,7 @@ What ran, all on the Release APK:
 
 | Check | Result |
 |---|---|
-| ML Kit OCR on three covers | `MOBY DICK or The Whale HERMAN MELVILLE`, `PRIDE AND PREJUDICE JANE AUSTEN`, `FRANKENSTEIN or The Modern Prometheus MARY SHELLEY`. The three tallest lines win, so *A Novel* is dropped when the title takes two lines |
+| ML Kit OCR on three covers | `MOBY DICK or The Whale HERMAN MELVILLE`, `PRIDE AND PREJUDICE JANE AUSTEN`, `FRANKENSTEIN or The Modern Prometheus MARY SHELLEY`. Lines under 40% of the tallest are left out (step 05): *A Novel* is, *or, The Whale* isn't |
 | Open Library search, source-generated JSON | 5 candidates per cover, with author, year and cover |
 | Cover images (URL string bound to `Image.Source`) | load under full trim |
 | **Add**, then restart the app (`am force-stop`) | the shelf comes back from `books.json` (snake_case, null fields omitted) |
@@ -609,6 +609,7 @@ What the numbers say:
 2. **Publish about 4× faster**: 3.6× in one run and 4.4× in the other. Microsoft's figure is
    "up to 2.8x faster build times on iOS devices". As in step 10, treat this as an order of
    magnitude, not a precise number: each job's time moved by 41 to 49 s between the two runs.
+   *Four runs give 2.6× to 4.4× (step 12).*
 3. **The 2 warnings are MAUI's.** By default, trim analysis produces "at most one warning for each
    assembly that comes from a `PackageReference`"
    ([trimming options](https://learn.microsoft.com/dotnet/core/deploying/trimming/trimming-options#show-detailed-warnings)).
@@ -684,3 +685,66 @@ installed as it is. The log also doesn't show where the Mono job spends its time
 
 Result: both jobs are green, with 8 tests passing in each. Locally, `dotnet test` passes 8 tests,
 and the solution builds with only the known no-Mac iOS warning.
+
+## Step 12 · README (`step-12-docs`)
+
+Files: `README.md` (new), `docs/build-log.md` (a fix in step 09, a note in step 11, this section).
+
+The README is the short version of this log: what the app does, how to build and measure it,
+the numbers from steps 10 and 11, and what was never tested. Each claim in it was checked
+against the code and this log instead of written from memory. That caught three mistakes in the
+first draft, and one in this log:
+
+- **The query rule.** The draft said the query is the three tallest lines. The code keeps every
+  line at least 40% as tall as the tallest one (step 05). Step 09's table said the same wrong
+  thing ("the three tallest lines win"), and now states the real rule. Step 09's results couldn't
+  show the difference, because both rules give the same query on the three test covers: two have
+  three lines, and on the third the extra line, *A Novel*, is the smallest.
+- **"Save it by hand" is a label, not a button.** It sits above a Title/Author form prefilled
+  with the two biggest lines, and the button says **Save**.
+- **"It runs on Android and iOS."** iOS has never run. The README says the app *targets* both,
+  and says near the top that iOS is untested.
+
+The README links to headings in this log (`#step-09--the-release-apk-on-an-emulator-…`). Their
+ids were computed with [`github-slugger`](https://github.com/Flet/github-slugger), which
+generates heading ids the way GitHub does, and all 5 links resolve.
+
+**iOS, run again.** Step 11's sizes came from one run and its publish times from two. The merge
+added two runs of the final commit: the pull request's last run, and the push to `main`. All four
+runs used the same app code, SDK (10.0.303), workload set (10.0.303.1), Xcode (26.6) and runner
+image (20260828.587). Sizes in bytes:
+
+| ios-arm64 | [Run 2](https://github.com/Romain-OD/ShelfScan/actions/runs/36619196087) | [Run 3](https://github.com/Romain-OD/ShelfScan/actions/runs/36622502923) | [Run 4](https://github.com/Romain-OD/ShelfScan/actions/runs/36623986897) |
+|---|---|---|---|
+| Native AOT `.app` | 15,603,548 | 15,603,548 | 15,603,548 |
+| Native AOT `.ipa` | 6,265,748 | 6,265,747 | 6,265,755 |
+| Mono (defaults) `.app` | 47,291,085 | 47,291,085 | 47,291,085 |
+| Mono (defaults) `.ipa` | 16,217,904 | 16,217,876 | 16,217,919 |
+
+- The `.app` totals repeat to the byte, including run 2's, which had
+  `-p:TrimmerSingleWarn=false`.
+- The `.ipa`s move by up to 43 bytes. I didn't look into why, since no MB figure changes.
+- [Run 1](https://github.com/Romain-OD/ShelfScan/actions/runs/36618205365) wrote its sizes only
+  to the job summary, and the API doesn't return job summaries.
+
+Publish step times:
+
+| | Run 1 | Run 2 | Run 3 | Run 4 |
+|---|---|---|---|---|
+| Native AOT | 2 min 38 s | 1 min 57 s | 2 min 28 s | 3 min 29 s |
+| Mono (defaults) | 9 min 29 s | 8 min 40 s | 9 min 23 s | 8 min 57 s |
+| Native AOT faster by | 3.6× | 4.4× | 3.8× | 2.6× |
+
+Run 4's Native AOT job was slower in every phase after restore (log timestamps, against run 3):
+
+- compiling up to `ShelfScan.App.dll`: 94 s instead of 63 s
+- ILLink: 36 s instead of 29 s
+- native code through to the `.ipa`: 72 s instead of 43 s
+
+The code, SDK and image were the same, which points at the machine, not the build. Each job
+gets its own runner, so every ratio divides one machine's time by another's. Step 11's "about 4×"
+is really 2.6× to 4.4×: Native AOT was faster every time, but not by a fixed factor. The README
+gives the range.
+
+Result: all four CI runs are green, with 8 tests passing in every job. Locally, `dotnet test`
+passes 8 tests, and the solution builds with only the known no-Mac iOS warning.

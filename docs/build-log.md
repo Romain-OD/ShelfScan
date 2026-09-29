@@ -151,3 +151,38 @@ Decisions:
   the UA header, and the mapping, including a doc with no author/cover/year.
 
 Result: 4 tests pass. `ShelfScan.Core` builds with 0 warnings.
+
+## Step 05 · From OCR lines to a search query (`step-05-ocr-query`)
+
+Files: `ShelfScan.Core/OcrQuery.cs` (`OcrLine` record + `OcrQuery.FromLines`), tests in
+`OcrQueryTests.cs`.
+
+Both OCR engines return lines with a bounding box: ML Kit in pixels, Apple Vision normalized
+to 0..1. The platform code (steps 06–07) maps them to `OcrLine(Text, Height)`, and everything
+after that is shared, plain .NET that runs in tests.
+
+Measured first: how does Open Library's `q=` react to cover noise? (1.2 s between requests)
+
+| Query | Found | Top result |
+|---|---|---|
+| `MOBY-DICK HERMAN MELVILLE` | 267 | Moby Dick, Herman Melville, 1851 ✅ |
+| `… PENGUIN CLASSICS` | 6 | Moby Dick, 1851 ✅ |
+| `Pride and Prejudice Jane Austen A NOVEL` | 56 | Pride and Prejudice, 1813 ✅ |
+| `FRANKENSTEIN MARY SHELLEY or the Modern Prometheus` | 164 | Frankenstein; or, The Modern Prometheus ✅ |
+| `FRANKENSTEIN MARY SHELLEY THE CLASSIC TALE OF TERROR THAT HAS HAUNTED READERS` | 1 | *American Film* ❌ |
+| `LE PETIT PRINCE ANTOINE DE SAINT EXUPERY GALLIMARD` | 20 | Le petit prince, 1943 ✅ (accents optional) |
+
+Every word must match, so a few extra words are fine but a tagline sinks the search.
+
+Decisions:
+
+- **Keep the big text**: lines at least 40% as tall as the tallest line, in the OCR's reading
+  order. Title and author pass. Series names, taglines and prices don't. Lines without a letter
+  (prices, volume numbers) are dropped before the tallest is picked.
+- **Strip search syntax**: only letters, digits and apostrophes (`'` and `’`) survive. `-`, `:`
+  and `"` are query operators to the search engine, and `MOBY-DICK` still finds *Moby Dick*.
+- `ponytail:` it's a heuristic (stylised covers will beat it). The query is shown in an
+  editable box, so a wrong guess costs one edit.
+- The offline "already own it?" check (step 03) uses **all** OCR text, not this query.
+
+Result: 7 tests pass. `ShelfScan.Core` builds with 0 warnings.

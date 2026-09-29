@@ -18,6 +18,13 @@
 		       <MauiXaml Update="MyPage.xaml" Inflator="Runtime" /> (force runtime inflation) -->
 		<MauiXamlInflator>SourceGen</MauiXamlInflator>
 
+		<!-- AOT + trimming. Turns on the trim/AOT analyzers for every TFM, so anything
+		     that would break after trimming shows up as a build warning (IL2xxx/IL3xxx). -->
+		<IsAotCompatible>true</IsAotCompatible>
+		<!-- iOS: Native AOT (implies full trimming, so no TrimMode here).
+		     Not conditioned on Configuration, per the MAUI Native AOT docs. -->
+		<PublishAot Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'ios'">true</PublishAot>
+
 		<!-- Display name -->
 		<ApplicationTitle>ShelfScan</ApplicationTitle>
 
@@ -30,6 +37,17 @@
 
 		<SupportedOSPlatformVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'ios'">15.0</SupportedOSPlatformVersion>
 		<SupportedOSPlatformVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'android'">21.0</SupportedOSPlatformVersion>
+	</PropertyGroup>
+
+	<!-- Android: Native AOT is experimental in .NET 10, so Mono AOT, but all of it.
+	     Release builds already run Mono AOT with a startup profile (only the profiled
+	     methods are precompiled) and partial trimming (framework assemblies only). -->
+	<PropertyGroup Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'android'">
+		<!-- Trim our code and every package too. Never conditioned on Configuration:
+		     MAUI feature switches follow TrimMode, and Debug must behave like Release. -->
+		<TrimMode>full</TrimMode>
+		<!-- Precompile every method, not just the profiled ones. -->
+		<AndroidEnableProfiledAot>false</AndroidEnableProfiledAot>
 	</PropertyGroup>
 
 	<ItemGroup>

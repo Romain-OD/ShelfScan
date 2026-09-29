@@ -1,16 +1,15 @@
-﻿using Microsoft.Extensions.DependencyInjection;
-
 namespace ShelfScan.App;
 
 public partial class App : Application
 {
-	public App()
-	{
-		InitializeComponent();
-	}
+    private readonly MainPage mainPage;
 
-	protected override Window CreateWindow(IActivationState? activationState)
-	{
-		return new Window(new AppShell());
-	}
+    public App(MainPage mainPage)
+    {
+        InitializeComponent();
+        this.mainPage = mainPage;
+    }
+
+    // Two pages don't need Shell: a NavigationPage pushes the scan page and pops back.
+    protected override Window CreateWindow(IActivationState? activationState) => new(new NavigationPage(mainPage));
 }

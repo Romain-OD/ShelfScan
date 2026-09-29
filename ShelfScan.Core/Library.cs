@@ -16,6 +16,17 @@ public sealed class Library(string path)
     /// <summary>True if a book with this Open Library work key is already on the shelf.</summary>
     public bool Owns(string key) => books.Exists(b => b.Key == key);
 
+    /// <summary>Search-as-you-type: every typed word starts a word of the title or author, case and accents ignored.</summary>
+    public IEnumerable<Book> Search(string typed)
+    {
+        HashSet<string> prefixes = Text.Words(typed);
+        return books.Where(b =>
+        {
+            HashSet<string> words = Text.Words($"{b.Title} {b.Author}");
+            return prefixes.All(p => words.Any(w => w.StartsWith(p, StringComparison.Ordinal)));
+        });
+    }
+
     /// <summary>
     /// Offline check straight from the cover: the owned book whose title words all appear in
     /// the OCR text and whose author has at least one word there. Case, accents and punctuation are ignored.

@@ -267,3 +267,50 @@ File: `Platforms/iOS/Ocr.iOS.cs` replaces the placeholder. No package: Vision sh
 Result: `dotnet build -f net10.0-ios -p:PublishAot=false` gives 0 warnings. The solution builds.
 The one warning is the known no-Mac linker notice from step 06, and 7 tests pass. **Not
 device-tested** (no Mac): the NativeAOT publish is verified in GitHub Actions in step 11.
+
+## Step 08 · Two pages: shelf and scan (`step-08-ui-pages`)
+
+Files: `App.xaml.cs`, `MainPage.xaml(.cs)`, `ScanPage.xaml(.cs)`, `MauiProgram.cs`,
+`Platforms/Android/AndroidManifest.xml`, `Platforms/iOS/Info.plist`. Deleted: `AppShell.xaml(.cs)`.
+Core gets `Library.Search` and one more test.
+
+The flow: **Scan a book** → camera → `ScanPage` reads the cover (steps 06/07) → builds the
+query (step 05) → checks the shelf offline (step 03) → otherwise asks Open Library (step 04)
+→ **Add**, or save by hand.
+
+Decisions:
+
+- **No Shell.** Two pages don't need routes or a flyout: `App.CreateWindow` returns
+  `new NavigationPage(mainPage)`, which pushes `ScanPage` and pops back, and `ScanPage` gets the
+  photo path as a constructor argument. Shell would work too, but not its `[QueryProperty]`
+  attribute: under Native AOT it
+  ["won't work"](https://learn.microsoft.com/dotnet/maui/deployment/nativeaot?view=net-maui-10.0#native-aot-limitations)
+  (use `IQueryAttributable` instead).
+- **Compiled bindings only.** Both item templates declare `x:DataType` (`core:Book`,
+  `local:Candidate`), so bindings compile to typed getters instead of reflection. No view
+  models, no `INotifyPropertyChanged`: code-behind sets `ItemsSource` again when the list
+  changes (on appearing, on each keystroke). One list per page doesn't need MVVM plumbing.
+- **Offline first.** After OCR, `Library.FindOwned` checks the raw OCR text against the shelf.
+  On a match, the page says *Already on your shelf* and sends **no request**. Otherwise it
+  searches Open Library, and a result whose work key you own shows a disabled **Owned** button
+  (`Candidate` record).
+- **Save by hand** is always on the page, for books Open Library doesn't know or OCR garbles.
+  The two tallest OCR lines prefill Title and Author. The key is `local:<guid>`.
+- **Camera** (.NET 10 [`MediaPickerOptions`](https://learn.microsoft.com/dotnet/maui/platform-integration/device-media/picker?view=net-maui-10.0#using-media-picker)):
+  `RotateImage = true` gives both OCR engines upright pixels. `MaximumWidth/Height = 1600` is
+  plenty for cover text. `FullPath` "doesn't always return the physical path", so the photo is
+  copied through `OpenReadAsync` into `FileSystem.CacheDirectory` as `scan-<name>`.
+- **Permissions**, per [Learn's media picker setup](https://learn.microsoft.com/dotnet/maui/platform-integration/device-media/picker?view=net-maui-10.0#get-started).
+  Android: `CAMERA`; `WRITE_EXTERNAL_STORAGE` with `maxSdkVersion="32"` (listed under "taking
+  photo", Android 12 and older only); and a `<queries>` entry for `IMAGE_CAPTURE` (package
+  visibility, target API 30+). Skipped: `READ_*` media permissions (only for picking from the
+  gallery) and `uses-feature` (an optional store filter). iOS: `NSCameraUsageDescription`
+  only. There's no gallery and no video, so no photo-library or microphone keys.
+- **Shelf search** reuses step 03's `Text.Words`: every typed word must *start* a word of the
+  title or author, case and accents ignored. `exup` finds *Saint-Exupéry*, and `moby MEL` finds
+  *Moby Dick* by Herman Melville. One-letter words are dropped, so filtering starts at the
+  second letter.
+
+Result: 8 tests pass. The solution builds with only the known no-Mac iOS warning. Release
+publish (full AOT + full trim): 111 s, **0 warnings**, APK **43.57 MB** (+0.60 MB: two
+pages and more controls in, Shell and the counter out). Whether it *runs* trimmed is step 09.

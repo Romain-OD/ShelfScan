@@ -1,23 +1,58 @@
-﻿namespace ShelfScan.App;
+using ShelfScan.Core;
+
+namespace ShelfScan.App;
 
 public partial class MainPage : ContentPage
 {
-	int count = 0;
+    private readonly Library library;
+    private readonly OpenLibraryClient openLibrary;
 
-	public MainPage()
-	{
-		InitializeComponent();
-	}
+    public MainPage(Library library, OpenLibraryClient openLibrary)
+    {
+        InitializeComponent();
+        this.library = library;
+        this.openLibrary = openLibrary;
+    }
 
-	private void OnCounterClicked(object? sender, EventArgs e)
-	{
-		count++;
+    protected override void OnAppearing()
+    {
+        base.OnAppearing();
+        ShowBooks();
+    }
 
-		if (count == 1)
-			CounterBtn.Text = $"Clicked {count} time";
-		else
-			CounterBtn.Text = $"Clicked {count} times";
+    private void OnSearchChanged(object? sender, TextChangedEventArgs e) => ShowBooks();
 
-		SemanticScreenReader.Announce(CounterBtn.Text);
-	}
+    // Newest first.
+    private void ShowBooks() => Books.ItemsSource = library.Search(Search.Text ?? "").Reverse().ToList();
+
+    private async void OnScanClicked(object? sender, EventArgs e)
+    {
+        try
+        {
+            FileResult? photo = await MediaPicker.Default.CapturePhotoAsync(new MediaPickerOptions
+            {
+                RotateImage = true, // upright pixels for both OCR engines
+                MaximumWidth = 1600, // plenty for cover text, and OCR runs faster
+                MaximumHeight = 1600,
+            });
+            if (photo is null)
+            {
+                return; // cancelled
+            }
+
+            // FullPath isn't always a real file, so copy the photo where the OCR engines can read it.
+            string path = Path.Combine(FileSystem.CacheDirectory, "scan-" + photo.FileName);
+            await using (Stream source = await photo.OpenReadAsync())
+            await using (FileStream target = File.Create(path))
+            {
+                await source.CopyToAsync(target);
+            }
+
+            await Navigation.PushAsync(new ScanPage(library, openLibrary, path));
+        }
+        catch (Exception ex)
+        {
+            await DisplayAlertAsync("Camera", ex.Message, "OK");
+        }
+    }
 }

@@ -1,4 +1,5 @@
 ﻿using Microsoft.Extensions.Logging;
+using ShelfScan.Core;
 
 namespace ShelfScan.App;
 
@@ -18,6 +19,10 @@ public static class MauiProgram
 #if DEBUG
 		builder.Logging.AddDebug();
 #endif
+
+		builder.Services.AddSingleton(_ => new Library(Path.Combine(FileSystem.AppDataDirectory, "books.json")));
+		builder.Services.AddSingleton(_ => new OpenLibraryClient(new HttpClient { Timeout = TimeSpan.FromSeconds(15) }));
+		builder.Services.AddSingleton<MainPage>();
 
 		return builder.Build();
 	}

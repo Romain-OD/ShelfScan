@@ -44,4 +44,16 @@ public sealed class LibraryTests
         Assert.IsNull(library.FindOwned("SAINT-EXUPÉRY\nVol de nuit"), "same author, other title");
         Assert.IsNull(library.FindOwned("Le Petit Prince\nJoann Sfar"), "same title, other author");
     }
+
+    [TestMethod]
+    public async Task Search_matches_the_start_of_title_or_author_words()
+    {
+        Library library = new(path);
+        await library.AddAsync(new Book("/works/OL1", "Le Petit Prince", "Antoine de Saint-Exupéry"));
+        await library.AddAsync(new Book("/works/OL2", "Moby Dick", "Herman Melville"));
+
+        Assert.AreEqual("Le Petit Prince", library.Search("exup").Single().Title);
+        Assert.AreEqual("Moby Dick", library.Search("moby MEL").Single().Title);
+        Assert.AreEqual(2, library.Search("").Count());
+    }
 }

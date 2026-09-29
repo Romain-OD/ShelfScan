@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             xmlns:local="clr-namespace:ShelfScan.App"
+             x:Class="ShelfScan.App.ScanPage"
+             Title="Scan">
+
+    <ScrollView>
+        <VerticalStackLayout Padding="16" Spacing="12">
+            <Image x:Name="Photo" HeightRequest="220" Aspect="AspectFit" />
+            <Label x:Name="Status" FontSize="16" FontAttributes="Bold" />
+
+            <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+                <Entry x:Name="Query" Placeholder="Title and author" ReturnType="Search" Completed="OnSearchClicked" />
+                <Button Grid.Column="1" Text="Search" Clicked="OnSearchClicked" />
+            </Grid>
+
+            <VerticalStackLayout x:Name="Results" Spacing="8">
+                <BindableLayout.ItemTemplate>
+                    <DataTemplate x:DataType="local:Candidate">
+                        <Grid ColumnDefinitions="48,*,Auto" ColumnSpacing="10">
+                            <Image Source="{Binding Book.CoverUrl}" HeightRequest="72" Aspect="AspectFit" />
+                            <VerticalStackLayout Grid.Column="1" VerticalOptions="Center">
+                                <Label Text="{Binding Book.Title}" FontAttributes="Bold" />
+                                <Label Text="{Binding Book.Author}" FontSize="13" />
+                                <Label Text="{Binding Book.Year}" FontSize="12" TextColor="{StaticResource Gray500}" />
+                            </VerticalStackLayout>
+                            <Button Grid.Column="2" Text="{Binding Action}" IsEnabled="{Binding CanAdd}"
+                                    Clicked="OnAddClicked" VerticalOptions="Center" />
+                        </Grid>
+                    </DataTemplate>
+                </BindableLayout.ItemTemplate>
+            </VerticalStackLayout>
+
+            <Label Text="Not the right book? Save it by hand:" Margin="0,12,0,0" />
+            <Entry x:Name="ManualTitle" Placeholder="Title" />
+            <Entry x:Name="ManualAuthor" Placeholder="Author" />
+            <Button Text="Save" Clicked="OnSaveClicked" />
+        </VerticalStackLayout>
+    </ScrollView>
+
+</ContentPage>

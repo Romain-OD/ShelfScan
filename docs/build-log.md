@@ -79,7 +79,7 @@ Decisions (sources: [Native AOT on iOS/Mac Catalyst](https://learn.microsoft.com
 - `PublishTrimmed` is not set: the docs say the SDK sets it when needed.
 
 Result: Release publish of the template app, full AOT + full trim: **0 warnings**, 76
-assemblies AOT-compiled to `.so`, 108 s, universal APK (arm64 + x64) **31.97 MB**.
+assemblies AOT-compiled to `.so`, 108 s, universal APK (arm64 + x64) **31.99 MB**.
 Step 10 compares size and startup against the defaults.
 
 ## Step 03 · Book, JSON, Library (`step-03-core-library`)
@@ -239,7 +239,7 @@ Building with `-p:PublishAot=false` gives 0 warnings. C# still compiles on Windo
 real iOS gate is the macOS CI job (step 11).
 
 Result: Release `dotnet publish -f net10.0-android` took 110 s with **0 warnings** under full trim
-and full AOT. The universal APK (arm64 + x64) went from 31.97 MB to **42.97 MB**:
+and full AOT. The universal APK (arm64 + x64) went from 31.99 MB to **42.97 MB**:
 `libmlkit_google_ocr_pipeline.so` is 4.2 MB compressed per ABI, plus 1 MB of `.tflite` models and
 the ML Kit/Play Services dex. That matches Google's "about 4 MB per architecture".
 
@@ -312,5 +312,94 @@ Decisions:
   second letter.
 
 Result: 8 tests pass. The solution builds with only the known no-Mac iOS warning. Release
-publish (full AOT + full trim): 111 s, **0 warnings**, APK **43.57 MB** (+0.60 MB: two
-pages and more controls in, Shell and the counter out). Whether it *runs* trimmed is step 09.
+publish (full AOT + full trim): 111 s, **0 warnings**, APK **43.98 MB**, 1.01 MB more than
+step 06. Comparing the two APKs entry by entry, most of it is **System.Text.Json**: +391 KB of
+AOT code for the two ABIs, plus IL in the assembly store (+335 KB across all assemblies).
+Until now no page called `Library` or `OpenLibraryClient`, so the trimmer had removed JSON
+completely: with trimming, you pay for code when something uses it. MAUI Controls shrank by 83 KB
+(Shell is gone) and Essentials grew by 62 KB (MediaPicker). Whether the app *runs* trimmed is
+step 09.
+
+## Step 09 · The Release APK on an emulator (`step-09-emulator-e2e`)
+
+Files: `Resources/Styles/Styles.xaml` (one fix), `docs/e2e/` (camera images and screenshots).
+
+Trimming and AOT only happen in Release (step 02), so a Debug run proves nothing about them.
+Everything below is the published Release APK (full Mono AOT, `TrimMode=full`) on the
+`shelfscan` AVD (API 36, x86_64):
+
+```powershell
+emulator -avd shelfscan -camera-back imagefile:$env:TEMP\camera.png
+dotnet publish ShelfScan.App -f net10.0-android -c Release
+adb install -r ShelfScan.App\bin\Release\net10.0-android\publish\dev.romain.shelfscan-Signed.apk
+```
+
+**A book cover without a book.** The emulator's back camera can show a still image
+(`-camera-back imagefile:<file>`). The default `virtualscene` is a 3D room with a poster on the
+wall, but the poster isn't in view from where the camera starts, and walking the camera to it
+isn't a repeatable test step. With `imagefile`, the camera app only gets part of the picture:
+about the left 55% of the width and the middle 55% of the height. I measured that with a
+labelled grid, and the saved photo matches the preview. So each test cover sits inside that
+window on a 1200×1600 table-coloured canvas (`docs/e2e/moby-dick.png`, `pride-and-prejudice.png`,
+`frankenstein.png`). The covers are self-made (public-domain titles, no real cover art). The
+emulator reads the file **each time the camera opens**, so switching books means copying
+another cover over `camera.png`, with no reboot.
+
+**The first scan hit the network, not the app.** OCR worked straight away, but Open Library
+didn't: *"Open Library didn't answer (Connection failure). You can save it by hand."*
+The host reached the API fine. The network I'm on inspects HTTPS: a corporate proxy re-signs
+every certificate with its own root CA. Windows trusts that root, but the emulator doesn't, so
+the TLS handshake failed. The app behaved as designed: it showed the message, kept the manual
+form, and trusts only the system CAs. Android's
+[network security config](https://developer.android.com/privacy-and-security/security-config)
+says apps trust user-added CAs by default only when they target API 23 or lower, so a phone on
+such a network fails the same way. For the test, the proxy's root went into the throwaway
+emulator's **system** store (rooted `google_apis` image). Since Android 14 the roots ship in the
+[Conscrypt APEX](https://source.android.com/docs/core/ota/modular-system/conscrypt), so that
+takes a tmpfs copy bind-mounted into the zygote's mount namespace, and it's gone at the next
+boot. The app didn't change.
+
+**One fix: the navigation bar title.** The template's `NavigationPage` style draws the title
+and back arrow in `Gray200` on a `White` bar in light theme, which is hard to read. The template
+starts with Shell, whose own style uses `Black`. Step 08 swapped Shell for a `NavigationPage`,
+so this style now applies, and it gets the same `Black`.
+
+What ran, all on the Release APK:
+
+| Check | Result |
+|---|---|
+| ML Kit OCR on three covers | `MOBY DICK or The Whale HERMAN MELVILLE`, `PRIDE AND PREJUDICE JANE AUSTEN`, `FRANKENSTEIN or The Modern Prometheus MARY SHELLEY`. The three tallest lines win, so *A Novel* is dropped when the title takes two lines |
+| Open Library search, source-generated JSON | 5 candidates per cover, with author, year and cover |
+| Cover images (URL string bound to `Image.Source`) | load under full trim |
+| **Add**, then restart the app (`am force-stop`) | the shelf comes back from `books.json` (snake_case, null fields omitted) |
+| Scan a book you own | *✔ Already on your shelf: Moby Dick by Herman Melville*, from the OCR text alone, no search |
+| Search Open Library for a book you own | its row shows a disabled **Owned** |
+| Save by hand | key `local:<guid>`, and a rescan finds it offline |
+| Shelf search | `austen` and `melville` filter as expected |
+| Camera permission prompt, cancelled capture | prompt shown once; cancel returns to the shelf |
+
+No crash, and nothing from `AndroidRuntime`, `DOTNET`, `mono` or `monodroid` in logcat's
+error level across all of it.
+
+**Not covered here.** The emulator's photos arrive upright, and MediaPicker's processed file
+says EXIF orientation 1, so the sideways-photo path isn't exercised. The remaining check is a
+real phone: does anything rotate twice (`RotateImage`, then ML Kit's own EXIF handling)? iOS
+waits for step 11.
+
+The screenshots are in `docs/e2e/` (`screen-results.png`, `screen-shelf.png`,
+`screen-owned.png`). A first launch took 2.5 s (`am start -W`), but that's one cold boot,
+not a measurement: step 10 measures size and startup properly.
+
+**Sizes, re-measured.** A clean publish of this step gave 43.98 MB, which didn't match the
+43.57 MB logged for step 08, although the only change was two colours. So each tagged step was
+published again from scratch (`git worktree add <dir> <tag>`, then `dotnet publish`):
+
+| Tag | APK | Warnings |
+|---|---|---|
+| `step-02-aot-trim` | 31.99 MB (33,548,959 bytes) | 0 |
+| `step-06-ocr-android` | 42.97 MB (45,055,886 bytes) | 0 |
+| `step-08-ui-pages` | 43.98 MB (46,117,661 bytes) | 0 |
+| `step-09-emulator-e2e` | 43.98 MB (46,117,661 bytes) | 0 |
+
+Two earlier figures were wrong (31.97 and 43.57 MB), probably read from a stale APK. They're
+corrected above, and from here on sizes come from clean builds only.

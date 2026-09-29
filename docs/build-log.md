@@ -55,7 +55,7 @@ Windows with 0 warnings. Compiling iOS needs no Mac. Only publishing does (Xcode
 `ShelfScan.Core.csproj` gets `<IsAotCompatible>true</IsAotCompatible>` too.
 
 ```powershell
-dotnet publish ShelfScan.App -f net10.0-android -c Release -p:AndroidPackageFormat=apk
+dotnet publish ShelfScan.App -f net10.0-android -c Release
 ```
 
 Decisions (sources: [Native AOT on iOS/Mac Catalyst](https://learn.microsoft.com/dotnet/maui/deployment/nativeaot?view=net-maui-10.0),
@@ -79,8 +79,8 @@ Decisions (sources: [Native AOT on iOS/Mac Catalyst](https://learn.microsoft.com
 - `PublishTrimmed` is not set: the docs say the SDK sets it when needed.
 
 Result: Release publish of the template app, full AOT + full trim: **0 warnings**, 76
-assemblies AOT-compiled to `.so`, 108 s, universal APK (arm64 + x64) **31.99 MB**.
-Step 10 compares size and startup against the defaults.
+assemblies AOT-compiled to `.so`, universal APK (arm64 + x64) **31.99 MB**.
+Step 10 measures size and startup against the defaults, and goes back to profiled AOT.
 
 ## Step 03 · Book, JSON, Library (`step-03-core-library`)
 
@@ -392,7 +392,8 @@ not a measurement: step 10 measures size and startup properly.
 
 **Sizes, re-measured.** A clean publish of this step gave 43.98 MB, which didn't match the
 43.57 MB logged for step 08, although the only change was two colours. So each tagged step was
-published again from scratch (`git worktree add <dir> <tag>`, then `dotnet publish`):
+published again from scratch (`git worktree add <dir> <tag>`, then
+`dotnet publish ShelfScan.App -f net10.0-android -c Release`):
 
 | Tag | APK | Warnings |
 |---|---|---|
@@ -401,5 +402,109 @@ published again from scratch (`git worktree add <dir> <tag>`, then `dotnet publi
 | `step-08-ui-pages` | 43.98 MB (46,117,661 bytes) | 0 |
 | `step-09-emulator-e2e` | 43.98 MB (46,117,661 bytes) | 0 |
 
-Two earlier figures were wrong (31.97 and 43.57 MB), probably read from a stale APK. They're
-corrected above, and from here on sizes come from clean builds only.
+Step 06 matches. Step 02 had first been published with `-p:AndroidPackageFormat=apk`, and
+that command gives its 31.97 MB again (33,520,222 bytes). With that flag, .NET packages the APK
+itself. A plain publish builds the AAB, then bundletool extracts a universal APK from it
+(`_CreateUniversalApkFromBundle` in the Android SDK targets). Same app, two sizes: 28 KB apart
+for step 02, 36 KB for this step. So every size in this log now comes from a clean plain
+publish, and step 02 shows that command. The 43.57 MB for step 08 doesn't come back with either
+command, so it was most likely read from a stale APK.
+
+## Step 10 · Size and startup, measured (`step-10-measure-android`)
+
+Files: `scripts/measure-android.ps1` (new), `ShelfScan.App.csproj` (back to profiled AOT).
+
+```powershell
+emulator -avd shelfscan -memory 4096 -no-snapshot-load
+.\scripts\measure-android.ps1 -Adb "$env:LOCALAPPDATA\Android\Sdk\platform-tools\adb.exe"
+```
+
+The script publishes four Release builds, each from a clean `bin`/`obj`. Only command-line
+properties change:
+
+| Variant | Properties | What it is |
+|---|---|---|
+| Defaults | `-p:TrimMode=partial -p:IsAotCompatible=false` | a new MAUI app in Release: profiled AOT, framework-only trimming |
+| JIT | `-p:RunAOTCompilation=false` | full trim, no AOT |
+| Profiled AOT | none | full trim, profiled AOT: **what ships from this step on** |
+| Full AOT | `-p:AndroidEnableProfiledAot=false` | full trim, full AOT: what steps 02 to 09 shipped |
+
+- The defaults need `IsAotCompatible=false`. It implies `IsTrimmable`
+  (`Microsoft.NET.Publish.targets`), and partial mode trims every assembly marked trimmable,
+  so our own code would still be trimmed.
+- `RunAOTCompilation=false` alone gives a real JIT build. The Android SDK runs AOT only when
+  `AotAssemblies` is true, and that property follows `RunAOTCompilation`. The JIT APK has no
+  `libaot-*.so` file at all.
+
+**How startup is timed.** `adb shell am start -S -W` force-stops the app, launches it and waits
+for the first frame. `TotalTime` is Android's [time to initial display](https://developer.android.com/topic/performance/vitals/launch-time#time-initial).
+Each round reinstalls each variant, launches it once to warm up, then times five cold starts
+(the script checks `LaunchState: COLD`). Four rounds interleave the variants, so a slow moment
+on the host hits all four, not just one: 20 launches per variant. This is an emulator (x86_64,
+Android 16, 4 GB, cold-booted just before), not a phone, so compare the variants with each other.
+
+Two runs, each on its own fresh boot. Run C came first, with the csproj still on full AOT. Run D
+is this commit. The APKs are identical to the byte across both runs
+(MB = 1,048,576 bytes, here and in every step).
+
+| Variant | APK | Warnings | Cold start, run C | Cold start, run D |
+|---|---|---|---|---|
+| Defaults | 38.29 MB (40,147,271 bytes) | 0, analysis off | 827 ms (745–981) | 925 ms (777–1142) |
+| JIT | 30.06 MB (31,517,518 bytes) | 0 | 1311 ms (1153–3000) | 1422.5 ms (1201–3665) |
+| **Profiled AOT** | **35.69 MB (37,425,949 bytes)** | **0** | **888 ms (745–1042)** | **949 ms (821–1048)** |
+| Full AOT | 43.98 MB (46,117,661 bytes) | 0 | 872 ms (772–1016) | 922 ms (815–3684) |
+
+Medians, with min–max. Run D is 50–110 ms slower across the board: that's the spread between
+two boots of the same emulator. So compare within a run (Mann–Whitney, two-sided):
+
+| Against profiled AOT | Run C | Run D |
+|---|---|---|
+| JIT | +423 ms, p < 0.001 | +473.5 ms, p < 0.001 |
+| Full AOT | −16 ms, p = 0.58 | −27 ms, p = 0.53 |
+| Defaults | −61 ms, p = 0.03 | −24 ms, p = 0.52 |
+
+What the numbers say:
+
+1. **AOT is what makes startup fast.** Without it, the first frame comes about 50% later, in
+   both runs. It's the only difference that clearly beats the noise.
+2. **Full AOT costs 8.29 MB and buys no measurable startup.** The APK grows by 8,691,712 bytes
+   (+23%). The `libaot-*.so` files account for all of it but 681 bytes: 182 of them in both
+   builds, 5.56 MB compressed with the startup profile and 13.85 MB without (16.30 → 44.25 MB
+   uncompressed, two ABIs). Startup moves by −16 and −27 ms, with p around 0.5 both times.
+   That's what the profile is for: it already precompiles what runs at startup.
+3. **Full trim saves 2.60 MB, not startup time.** Against the defaults, startup is a wash.
+   Run C had the defaults 45–61 ms ahead of both full-trim builds (p = 0.02 and 0.03), run D
+   didn't repeat it (p > 0.5), and the 2 GB run below had ours 23 ms ahead.
+4. **The defaults hide trim warnings.** Their 0 doesn't mean what ours means. With
+   `TrimMode=partial` and no `IsAotCompatible`, the Android SDK sets
+   `SuppressTrimAnalysisWarnings=true` and leaves `EnableTrimAnalyzer` off
+   (`Microsoft.Android.Sdk.DefaultProperties.targets`, checked with `dotnet msbuild -getProperty`).
+   The trimmer still removes code. It just doesn't report what might break. The only trace is
+   one line per RID, which ILLink prints only when warnings are suppressed: *"Optimizing
+   assemblies for size may change the behavior of the app. Be sure to test after publishing."*
+   The script turns that line into "0 (trim analysis off)". ShelfScan's 0 is with the analysis on.
+5. **Publish time is an order, not a number.** The same build moves by tens of seconds between
+   runs. JIT (95–103 s) < defaults and profiled AOT (163–185 s) < full AOT (193–211 s).
+
+**Memory changes the answer.** The AVD first ran with its default 2 GB. Timings crept up round
+after round, and the emulator ended with 245 MB free and 770 MB in swap. Medians there:
+1089.5 / 1525.5 / 1066.5 / 1159.5 ms (defaults / JIT / profiled / full), with full AOT the
+slowest of the AOT builds. So both runs above use `-memory 4096` and a cold boot.
+
+**Decision: back to profiled AOT.** `AndroidEnableProfiledAot=false` is gone from the csproj.
+Release already defaults to `RunAOTCompilation=true` and `AndroidEnableProfiledAot=true`,
+which the [migration guide](https://learn.microsoft.com/dotnet/maui/migration/android-projects?view=net-maui-10.0#ahead-of-time-compilation)
+says "chooses the optimal settings for startup time and app size". Full AOT had one way to win
+the size back, `AndroidStripILAfterAOT`, but it was experimental in .NET 8 and is removed in
+.NET 10 ([build properties](https://learn.microsoft.com/dotnet/android/building-apps/build-properties)).
+`TrimMode=full` stays: 2.60 MB smaller, with the trim analysis on. Step 02 guessed. This step
+measured.
+
+**Not measured.** With profiled AOT, code outside the startup profile is JIT-compiled the first
+time it runs. The scan page, ML Kit and the Open Library JSON are in that group, so the first
+scan after a launch may be a little slower than with full AOT. Nothing here times it.
+
+**The shipped build, again.** The profiled-AOT APK ran the step 09 flow on a fresh boot: scan,
+pick a result, **Add**, scan again, *Already on your shelf*, force-stop and relaunch, still on
+the shelf. Covers load in the results and on the shelf. No errors in logcat. `dotnet test`: 8
+passed. Solution build: only the known iOS "no connection to a Mac" warning.

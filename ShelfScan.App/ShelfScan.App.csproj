@@ -40,15 +40,14 @@
 		<SupportedOSPlatformVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'android'">23.0</SupportedOSPlatformVersion>
 	</PropertyGroup>
 
-	<!-- Android: Native AOT is experimental in .NET 10, so Mono AOT, but all of it.
-	     Release builds already run Mono AOT with a startup profile (only the profiled
-	     methods are precompiled) and partial trimming (framework assemblies only). -->
+	<!-- Android: Native AOT is experimental in .NET 10, so Mono AOT. Release builds already
+	     run it with a startup profile (profiled AOT) and trim framework assemblies only.
+	     Full AOT (AndroidEnableProfiledAot=false) measured 8.3 MB bigger and no faster to
+	     start, so we keep profiled AOT: docs/build-log.md, step 10. -->
 	<PropertyGroup Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'android'">
 		<!-- Trim our code and every package too. Never conditioned on Configuration:
 		     MAUI feature switches follow TrimMode, and Debug must behave like Release. -->
 		<TrimMode>full</TrimMode>
-		<!-- Precompile every method, not just the profiled ones. -->
-		<AndroidEnableProfiledAot>false</AndroidEnableProfiledAot>
 	</PropertyGroup>
 
 	<ItemGroup>

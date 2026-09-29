@@ -81,3 +81,33 @@ Decisions (sources: [Native AOT on iOS/Mac Catalyst](https://learn.microsoft.com
 Result: Release publish of the template app, full AOT + full trim: **0 warnings**, 76
 assemblies AOT-compiled to `.so`, 108 s, universal APK (arm64 + x64) **31.97 MB**.
 Step 10 compares size and startup against the defaults.
+
+## Step 03 · Book, JSON, Library (`step-03-core-library`)
+
+Files: `ShelfScan.Core/Book.cs`, `ShelfJson.cs`, `Text.cs`, `Library.cs`, tests in
+`ShelfScan.Core.Tests/LibraryTests.cs`.
+
+```powershell
+dotnet test ShelfScan.Core.Tests
+```
+
+Decisions:
+
+- **`Book` is a positional record** whose `Key` is the Open Library *work* key
+  (`/works/OL45804W`). A work groups every edition of a book, so owning *any*
+  edition counts as owning the book. Hand-saved books get `local:<guid>`.
+- **System.Text.Json source generation (`ShelfJson : JsonSerializerContext`)**. The
+  reflection-based serializer is what `IsAotCompatible` warns about (IL2026/IL3050).
+  The generated `ShelfJson.Default.ListBook` needs no reflection. JSON is snake_case, which
+  matches Open Library's own field names (next step).
+- **One JSON file**, rewritten on every add: write `books.json.tmp`, then
+  `File.Move(..., overwrite: true)`. The rename swaps the file in one step, so a crash
+  can't leave a half-written shelf. `ponytail:` comment: switch to SQLite past ~10k books.
+- **"Do I already own it?" works offline**: `FindOwned(ocrText)` matches when *every*
+  title word and *one* author word appear in what the camera read. Words are lowercased,
+  accents stripped (Unicode FormD minus non-spacing marks), single letters dropped. So
+  `ANTOINE DE SAINT-EXUPERY / LE PETIT PRINCE` finds *Le Petit Prince* by *Antoine de
+  Saint-Exupéry*, while *Vol de nuit* by the same author does not match.
+- Plain MSTest `Assert`, a temp file per test, no mocks.
+
+Result: 3 tests pass (129 ms). `ShelfScan.Core` builds with 0 warnings, trim/AOT analyzers on.

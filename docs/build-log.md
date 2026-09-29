@@ -4,8 +4,9 @@ Each step is one commit and one tag (`step-NN-name`), so any step can be checked
 built and diffed on its own. For each step: what was run, what was decided and why,
 and what came out.
 
-Toolchain: .NET SDK 10.0.302 (pinned in `global.json`), MAUI 10.0.20, Android API 36,
-Windows 11. No Mac: iOS is published by GitHub Actions (step 11).
+Toolchain: .NET SDK 10.0.302 and workload set 10.0.303.1 (both pinned in `global.json`
+since step 11), MAUI 10.0.20, Android API 36, Windows 11. No Mac: iOS is published by
+GitHub Actions (step 11).
 
 ## Step 01 · Scaffold (`step-01-scaffold`)
 
@@ -34,6 +35,8 @@ Decisions:
 - **`MauiXamlInflator=SourceGen` stays on** (the .NET 10 template default): XAML becomes C#
   at compile time, which is what trimming and AOT want anyway.
 - `global.json` pins the SDK band because MAUI workloads are per band, so CI gets the same one.
+  *It didn't: `latestFeature` accepts any newer band, and nothing pinned the workload versions.
+  Step 11 fixes both.*
 
 Result: `dotnet build ShelfScan.slnx` builds `net10.0-android` **and** `net10.0-ios` on
 Windows with 0 warnings. Compiling iOS needs no Mac. Only publishing does (Xcode, signing).
@@ -65,6 +68,7 @@ Decisions (sources: [Native AOT on iOS/Mac Catalyst](https://learn.microsoft.com
 - **`IsAotCompatible` on every TFM** marks the assembly trimmable and turns on the trim, AOT and
   single-file analyzers. Code the trimmer can't follow becomes an `IL2xxx`/`IL3xxx`
   build warning. The rule for this repo is **zero** of those.
+  *On iOS, MAUI 10.0.20 itself brings 2 (step 11).*
 - **iOS → Native AOT.** Supported on iOS/Mac Catalyst. It implies full trimming, so
   `TrimMode` must *not* be set, and `PublishAot` is not conditioned on `Configuration`.
 - **Android → Mono, full AOT, full trimming.** Native AOT for Android is experimental
@@ -384,7 +388,7 @@ error level across all of it.
 **Not covered here.** The emulator's photos arrive upright, and MediaPicker's processed file
 says EXIF orientation 1, so the sideways-photo path isn't exercised. The remaining check is a
 real phone: does anything rotate twice (`RotateImage`, then ML Kit's own EXIF handling)? iOS
-waits for step 11.
+needs a device too: step 11 builds it in CI but can't run it.
 
 The screenshots are in `docs/e2e/` (`screen-results.png`, `screen-shelf.png`,
 `screen-owned.png`). A first launch took 2.5 s (`am start -W`), but that's one cold boot,
@@ -508,3 +512,175 @@ scan after a launch may be a little slower than with full AOT. Nothing here time
 pick a result, **Add**, scan again, *Already on your shelf*, force-stop and relaunch, still on
 the shelf. Covers load in the results and on the shelf. No errors in logcat. `dotnet test`: 8
 passed. Solution build: only the known iOS "no connection to a Mac" warning.
+
+## Step 11 · iOS in GitHub Actions (`step-11-ios-ci`)
+
+Files: `.github/workflows/ios.yml` (new), `global.json`, `scripts/measure-android.ps1`.
+
+There's no Mac here, so a macOS runner does the iOS work. It runs the tests, then publishes an
+unsigned Release build for a device (`ios-arm64`) twice: once as ShelfScan is configured
+(Native AOT, full trimming), and once with the MAUI defaults (Mono AOT, partial trimming), the
+same "defaults" as step 10's Android script. Each job writes the `.app` and `.ipa` sizes and its
+warnings to the job summary and to the log. The workflow runs on pushes to `main` and on pull
+requests ([runs](https://github.com/Romain-OD/ShelfScan/actions/workflows/ios.yml)).
+
+```yaml
+runs-on: macos-26
+strategy:
+  matrix:
+    include:
+      - build: Native AOT (ShelfScan)
+        props: ""
+      - build: Mono AOT (defaults)
+        props: "-p:PublishAot=false -p:IsAotCompatible=false"
+steps:
+  - uses: actions/checkout@v7
+  - uses: actions/setup-dotnet@v6
+    with:
+      global-json-file: global.json
+  - run: sudo xcode-select -s /Applications/Xcode_26.6.app
+  - run: dotnet workload restore ShelfScan.App/ShelfScan.App.csproj
+  - run: dotnet test ShelfScan.Core.Tests
+  - run: >-
+      dotnet publish ShelfScan.App -f net10.0-ios -r ios-arm64 -c Release
+      -p:EnableCodeSigning=false ${{ matrix.props }}
+      | tee publish.log
+```
+
+A last step adds up the files in the `.app`, reads the size of the `.ipa`, and counts the
+warning lines in `publish.log`.
+
+Why each piece is there:
+
+- **SDK band and workload set, both pinned.** Since step 01, `global.json` had
+  `rollForward: latestFeature`, which lets the SDK roll forward to any newer band, and MAUI
+  workloads are per band. Now:
+
+  ```json
+  { "sdk": { "rollForward": "latestPatch", "version": "10.0.302", "workloadVersion": "10.0.303.1" } }
+  ```
+
+  `latestPatch` stays in the 10.0.3xx band. `workloadVersion` pins MAUI, the iOS SDK and the
+  Android SDK together: "If you have a workload-set version in the global.json file, the workload
+  commands are in `workload-set` mode even if you haven't run the `config` command or used
+  `--version`" ([workload sets](https://learn.microsoft.com/dotnet/core/tools/dotnet-workload-sets)).
+  CI got SDK 10.0.303 and the dev machine has 10.0.302: same band, same workload set.
+- **Xcode 26.6.** The iOS SDK in that set (26.5.10315) recommends Xcode 26.6
+  (`Microsoft.iOS.Sdk.Versions.props`), and it fails the build with error E0191 when the selected
+  Xcode has a different major.minor version (`Xamarin.Shared.Sdk.targets`). So the job selects
+  Xcode 26.6 explicitly instead of relying on the image's default.
+- **`dotnet workload restore` on the app project** installs what the project needs, at the set's
+  versions. The log says `Installing workload version 10.0.303.1.`, then
+  `Successfully installed workload(s) maui-android maui-ios.` Android is included because restore
+  evaluates every target framework, and it fails with NETSDK1147 if a workload is missing.
+- **Unsigned.** There's no certificate or provisioning profile in CI, so the job passes
+  `EnableCodeSigning=false`. It's still the device build (`ios-arm64`, Release), just without
+  a signature.
+- **`PublishAot` stays in the csproj.** On the command line, `-p:PublishAot=true` is a global
+  property. It also reaches ShelfScan.Core (`net10.0`), which then fails with NETSDK1203 (I tried
+  it locally). The csproj sets it for iOS only, so the Native AOT job passes nothing extra.
+- **`shell: bash`, spelled out.** When the shell is named, GitHub runs bash with `-o pipefail`, so
+  `| tee` can't turn a failed publish into a green step.
+- **Files, not log lines.** On Windows, with no Mac, an iOS publish printed "Created the
+  package" but wrote no `.ipa`. So the last step measures the files themselves, and `find` or
+  `stat` fails the job when one is missing (checked in Git Bash with `-e -o pipefail`).
+- **Both warning formats.** Compilers print `file(1,1): warning IL2026: ...`. ILLink and ILC
+  print `Trim analysis warning IL2026: ...` and `AOT analysis warning IL3050: ...`, with no colon
+  before `warning`. Step 10's pattern (`: warning `) only matched the first format. Both scripts now
+  use `warning [A-Z]+[0-9]+:|: warning :`. Step 10's numbers don't change: all four of its logs
+  count 0 with either pattern.
+
+Results. Both jobs passed, and all 8 tests passed in each (MB = 1,048,576 bytes):
+
+| ios-arm64, Release, unsigned | `.app` | `.ipa` | Warnings | Publish step (2 runs) |
+|---|---|---|---|---|
+| **Native AOT (ShelfScan)** | **14.88 MB** (15,603,548 bytes) | **5.98 MB** (6,265,748 bytes) | **2**, both in `Microsoft.Maui` | 2 min 38 s, 1 min 57 s |
+| Mono AOT (defaults) | 45.10 MB (47,291,085 bytes) | 15.47 MB (16,217,904 bytes) | 0, analysis off | 9 min 29 s, 8 min 40 s |
+
+The `.app` size is its files added up, and the `.ipa` is that bundle zipped. The sizes come from
+one run, the publish times from two.
+
+What the numbers say:
+
+1. **About 3× smaller.** The `.app` is 3.03× smaller and the `.ipa` 2.59×, from Native AOT plus
+   full trimming against the defaults. Microsoft's illustrative figure for a `dotnet new maui`
+   app is "typically up to 2.5x smaller"
+   ([Native AOT deployment](https://learn.microsoft.com/dotnet/maui/deployment/nativeaot?view=net-maui-10.0#native-aot-performance-benefits)).
+2. **Publish about 4× faster**: 3.6× in one run and 4.4× in the other. Microsoft's figure is
+   "up to 2.8x faster build times on iOS devices". As in step 10, treat this as an order of
+   magnitude, not a precise number: each job's time moved by 41 to 49 s between the two runs.
+3. **The 2 warnings are MAUI's.** By default, trim analysis produces "at most one warning for each
+   assembly that comes from a `PackageReference`"
+   ([trimming options](https://learn.microsoft.com/dotnet/core/deploying/trimming/trimming-options#show-detailed-warnings)).
+   With Native AOT, that's one warning of each kind:
+
+   ```text
+   Microsoft.Maui.dll : warning IL2104: Assembly 'Microsoft.Maui' produced trim warnings. For more information see https://aka.ms/il2104
+   Microsoft.Maui.dll : warning IL3053: Assembly 'Microsoft.Maui' produced AOT analysis warnings.
+   ```
+
+   One run with `-p:TrimmerSingleWarn=false` in the Native AOT job's `props` listed what's behind
+   them: 20 warnings, an IL2026 (trim) and an IL3050 (AOT) for each of 10 members. All 20 are in
+   `Microsoft.Maui`, and none in ShelfScan.App or ShelfScan.Core:
+
+   | Private class in `HybridWebViewHandler` (iOS) | Members |
+   |---|---|
+   | `SchemeHandler : NSObject, IWKUrlSchemeHandler` | static constructor, constructor, `Handler`, `GetResponseBytesAsync`, `StartUrlSchemeTask`, `StopUrlSchemeTask` |
+   | `WebViewScriptMessageHandler : NSObject, IWKScriptMessageHandler` | static constructor, constructor, `Handler`, `DidReceiveScriptMessage` |
+
+   All 20 come from the same method:
+
+   ```text
+   ILC : AOT analysis warning IL3050: <Module>..cctor(): Using member 'Microsoft.Maui.Handlers.HybridWebViewHandler.SchemeHandler..cctor()' which has 'RequiresDynamicCodeAttribute' can break functionality when AOT compiling. HybridWebView uses dynamic System.Text.Json serialization features.
+   ```
+
+   How that happens:
+
+   - MAUI 10.0.20 marks both classes `[RequiresUnreferencedCode]` and `[RequiresDynamicCode]`
+     ([source](https://github.com/dotnet/maui/blob/10.0.20/src/Core/src/Handlers/HybridWebView/HybridWebViewHandler.iOS.cs#L113-L139)).
+   - MAUI already turns HybridWebView off in this build. Its target `_MauiPrepareForILLink`
+     (`Microsoft.Maui.Controls.targets`) sets `MauiHybridWebViewSupported=false` when `PublishAot`
+     is true or `TrimMode` is `full`, and passes it to the trimmer as the feature switch
+     `Microsoft.Maui.RuntimeFeature.IsHybridWebViewSupported`. Running that target locally gives
+     `false`. ShelfScan has no `WebView` or `HybridWebView` anywhere.
+   - The references come from `<Module>..cctor()`, the assembly's module constructor. Before the
+     trimmer marks anything, the iOS SDK's `MarkNSObjectsStep` adds a `[DynamicDependency]` there
+     for `NSObject` subclasses
+     ([source, at this SDK's tag](https://github.com/dotnet/macios/blob/dotnet-10.0.1xx-xcode26.5-10315/tools/dotnet-linker/MarkNSObjectsStep.cs#L44-L50)).
+     That keeps both classes, so the analysis sees a method that uses members marked unsafe.
+   - MAUI's own .NET 11 CI hit the same warnings ([#35740](https://github.com/dotnet/maui/issues/35740)).
+     [PR #35626](https://github.com/dotnet/maui/pull/35626) makes HybridWebView AOT-safe with a
+     source generator, for .NET 11. MAUI 10.0.20, the version in the pinned workload set, doesn't
+     have it.
+
+   **Decision: leave them visible.** No `NoWarn`, and no workaround. Silencing IL2104 and IL3053
+   would also silence the next package that really does break under trimming. Microsoft's docs
+   cover this case: "There may be cases where fixing trimming and AOT warnings isn't possible,
+   such as when they occur for third-party libraries. In such cases, third-party libraries will
+   need to be updated to become fully compatible." The same page says that a single warning means
+   the app "might not work correctly". Here the flagged code belongs to HybridWebView, which
+   ShelfScan never creates, but nothing has run on an iPhone yet (see below). When a MAUI update
+   fixes it, the job summary goes from 2 to 0. Step 02's rule still holds for ShelfScan's own
+   code: 0 warnings.
+4. **On iOS, the "may change the behavior" line proves nothing.** Step 10 used ILLink's
+   *"Optimizing assemblies for size may change the behavior of the app"* to spot trim analysis
+   that was switched off. On iOS both jobs print it, for different reasons:
+   - Native AOT: ILLink runs first, then ILC compiles its output (the warnings above point at
+     `obj/.../linked/Microsoft.Maui.dll`). The iOS SDK silences ILLink's trim warnings when Native
+     AOT is on and turns them back on for ILC (`Xamarin.Shared.Sdk.Trimming.props`, target
+     `_XamarinComputeIlcCompileInputs`). ILC is what reported the 2.
+   - Mono (defaults): MAUI turns the analysis off. `Microsoft.Maui.Controls.Common.targets` sets
+     `EnableTrimAnalyzer=false` and `SuppressTrimAnalysisWarnings=true` unless `PublishAot` is true
+     or `TrimMode` is `full`, next to a FIXME that links to
+     [xamarin-macios#21351](https://github.com/xamarin/xamarin-macios/pull/21351). MSBuild
+     evaluates it before the iOS SDK's own defaults, which would have turned the analysis on
+     (checked with `dotnet msbuild -pp`). So, as with step 10's Android defaults, this 0 means
+     "not analyzed".
+
+**Not covered here.** Nothing ran on an iPhone: no Vision OCR on a real photo, no camera
+permission prompt, no EXIF check, no startup time. The `.ipa` is unsigned, so it can't be
+installed as it is. The log also doesn't show where the Mono job spends its time: after
+`IL stripping assemblies`, it's silent for about 8 minutes.
+
+Result: both jobs are green, with 8 tests passing in each. Locally, `dotnet test` passes 8 tests,
+and the solution builds with only the known no-Mac iOS warning.

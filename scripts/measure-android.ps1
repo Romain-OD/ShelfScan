@@ -45,7 +45,8 @@ $builds = foreach ($v in $variants) {
     if ($LASTEXITCODE) { throw "Publish failed, see $log" }
     $apk = Join-Path $out "$($v.Id).apk"
     Copy-Item "$root\ShelfScan.App\bin\Release\net10.0-android\publish\$package-Signed.apk" $apk
-    $warnings = @(Select-String $log -Pattern ': warning ' | ForEach-Object Line | Sort-Object -Unique).Count
+    # Compilers print ": warning IL2026:", ILLink and ILC print "Trim analysis warning IL2026:".
+    $warnings = @(Select-String $log -Pattern 'warning [A-Z]+[0-9]+:|: warning :' -CaseSensitive | ForEach-Object Line | Sort-Object -Unique).Count
     # The SDK prints this only when trim warnings are suppressed: partial trim without IsAotCompatible.
     if (Select-String $log -Pattern 'may change the behavior of the app' -Quiet) { $warnings = "$warnings (trim analysis off)" }
     [pscustomobject]@{

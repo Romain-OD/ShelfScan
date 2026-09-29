@@ -1,0 +1,75 @@
+# No Mac on the dev machine, so CI proves iOS: unit tests, then an unsigned Release publish for a
+# device (ios-arm64), twice: ShelfScan as configured (Native AOT) and the MAUI defaults (Mono AOT).
+name: ios
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    name: ios-arm64, ${{ matrix.build }}
+    runs-on: macos-26
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # PublishAot comes from the csproj (iOS only). "-p:PublishAot=true" would be a global property:
+          # restore hands it to ShelfScan.Core (net10.0) too, which fails with NETSDK1203.
+          - build: Native AOT (ShelfScan)
+            props: ""
+          # Same "defaults" as scripts/measure-android.ps1: no analyzers, partial trimming.
+          - build: Mono AOT (defaults)
+            props: "-p:PublishAot=false -p:IsAotCompatible=false"
+    defaults:
+      run:
+        shell: bash # adds -o pipefail, so "| tee" can't hide a failed publish
+    steps:
+      - uses: actions/checkout@v7
+
+      # SDK band and workload set both come from global.json, same as on the dev machine.
+      - uses: actions/setup-dotnet@v6
+        with:
+          global-json-file: global.json
+
+      # The iOS SDK in that workload set requires Xcode 26.6 (major.minor must match: error E0191).
+      - run: sudo xcode-select -s /Applications/Xcode_26.6.app
+
+      # Every workload the project needs. Android too: restore evaluates each target framework.
+      - run: dotnet workload restore ShelfScan.App/ShelfScan.App.csproj
+
+      - run: dotnet test ShelfScan.Core.Tests
+
+      # No signing identity in CI, so the device app is built unsigned.
+      - run: >-
+          dotnet publish ShelfScan.App -f net10.0-ios -r ios-arm64 -c Release
+          -p:EnableCodeSigning=false ${{ matrix.props }}
+          | tee publish.log
+
+      # find or stat fails the job if the .app or .ipa is missing: a publish can print
+      # "Created the package" and write nothing (seen on Windows, without a Mac).
+      - name: Size and warnings
+        run: |
+          app=$(find ShelfScan.App/bin -name '*.app' -type d -prune | head -1)
+          ipa=$(find ShelfScan.App/bin -name '*.ipa' | head -1)
+          echo "$app"; echo "$ipa"
+          app_bytes=$(find "$app" -type f -exec stat -f%z {} + | awk '{ s += $1 } END { print s }')
+          ipa_bytes=$(stat -f%z "$ipa")
+          # Compilers print ": warning IL2026:", ILLink and ILC print "Trim analysis warning IL2026:".
+          warnings=$(grep -E 'warning [A-Z]+[0-9]+:|: warning :' publish.log | sort -u || true)
+          count=$(printf '%s' "$warnings" | grep -c . || true)
+          mb() { awk -v b="$1" 'BEGIN { printf "%.2f MB", b / 1048576 }'; }
+          {
+            echo "### ios-arm64, ${{ matrix.build }}"
+            echo "| .app | .ipa | Warnings |"
+            echo "|---:|---:|---:|"
+            echo "| $(mb "$app_bytes") ($app_bytes B) | $(mb "$ipa_bytes") ($ipa_bytes B) | $count |"
+            if [ "$count" -gt 0 ]; then
+              echo; echo '```'; echo "$warnings"; echo '```'
+            fi
+          } | tee -a "$GITHUB_STEP_SUMMARY"

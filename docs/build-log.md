@@ -805,3 +805,11 @@ check through the launcher's settings provider (`adb root`, then
 and off again afterwards. On Windows, `dotnet build ShelfScan.App -f net10.0-ios -c Release`
 generates the iOS icons with only the known no-Mac warning: the 1024 px App Store icon is fully
 opaque and has the 1.3× foreground.
+
+Size, measured against `main`: the Release APK grows by 92 KB (35.69 to 35.78 MB), and the iOS
+`.app` by 123 KB in the pull request's CI run (Native AOT: `.app` 14.88 to 15.00 MB, `.ipa` 5.98
+to 6.09 MB). Inside the APK, all of it is the icon and splash images, 41 KB before and 129 KB now:
+a gradient and coloured shapes compress less than a flat colour with white letters, and the
+splash is drawn at 192 instead of 128. Images don't depend on trimming or AOT, so every variant
+gains the same amount (both iOS builds grew by exactly 126,096 bytes). The size comparisons from
+steps 10 and 11 still hold, and the README keeps their figures.

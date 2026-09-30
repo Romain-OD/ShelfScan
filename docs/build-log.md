@@ -892,6 +892,20 @@ Rebuilt clean in a separate worktree, main gives 37,425,949 bytes again, to the 
 `scripts/measure-android.ps1` deletes `bin` and `obj` before each variant, so step 10's numbers
 stand.
 
+**Size on iOS.** From this change's CI run: the unsigned `ios-arm64` Native AOT publish of step 11.
+
+| Build | `.app` | `.ipa` |
+|---|---|---|
+| main | 14.88 MB (15,603,548 bytes) | 5.98 MB (6,265,745 bytes) |
+| **This change** | **15.81 MB (16,575,452 bytes)** | **6.33 MB (6,632,308 bytes)** |
+| Difference | +949 KB (+6.2%) | +358 KB (+5.9%) |
+
+- More than on Android. Native AOT compiles everything reachable to arm64 code, the XML parser
+  included. The APK carries the parser as IL and precompiles only the methods in the startup
+  profile.
+- main's `.app` came out at 15,603,548 bytes in two CI runs a day apart, so the difference is this
+  change, not the runner.
+
 Limits:
 
 - BnF results have no cover.
@@ -901,5 +915,6 @@ Limits:
 - A heading with a dot inside the name, like a ministry under "France. Ministère …", keeps only
   the part before the dot. None of the 292 headings had one.
 
-Result: `dotnet test` passes 14 tests (2 for the BnF client, 4 cases for `WordsInCommon`). The
-Android Release publish has 0 warnings, and the iOS build on Windows only the known no-Mac warning.
+Result: `dotnet test` passes 14 tests (2 for the BnF client, 4 cases for `WordsInCommon`), locally
+and in CI. The Android Release publish has 0 warnings, and the iOS Native AOT publish still only
+MAUI's 2.

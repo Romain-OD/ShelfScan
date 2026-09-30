@@ -105,7 +105,9 @@ unsigned `ios-arm64` Release builds in GitHub Actions.
 | **ShelfScan: Native AOT** | **14.88 MB** | **5.98 MB** | **1:57 to 3:29** |
 
 The `.app` is 3× smaller and the `.ipa` 2.6× smaller. The publish was 2.6× to 4.4× faster,
-depending on the run.
+depending on the run. These are step 11's numbers. The BnF search, added later, makes the Native
+AOT `.app` 15.81 MB and the `.ipa` 6.33 MB (+358 KB)
+([details](docs/build-log.md#after-step-12--more-books-the-bnf-catalogue)).
 
 **Warnings.** ShelfScan's own code has none, on either platform. The iOS publish shows 2, from
 MAUI 10.0.20's HybridWebView, which ShelfScan doesn't use. MAUI fixes them in .NET 11. Until then

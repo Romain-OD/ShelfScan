@@ -918,3 +918,71 @@ Limits:
 Result: `dotnet test` passes 14 tests (2 for the BnF client, 4 cases for `WordsInCommon`), locally
 and in CI. The Android Release publish has 0 warnings, and the iOS Native AOT publish still only
 MAUI's 2.
+
+## After step 12 · Portrait photos on Android
+
+Files: `ShelfScan.App/MainPage.xaml.cs`, `docs/e2e/screen-portrait-before.png` and
+`screen-portrait-after.png` (new), `README.md`.
+
+Step 09 left a question open. Most phone cameras save a portrait photo with the pixels sideways
+and an EXIF tag, orientation 6, that says to turn it 90°. Does anything turn it twice? The
+emulator couldn't say: its camera saves upright pixels with orientation 1, in all four screen
+rotations.
+
+**What MAUI 10.0.20 does with that photo on Android**, read in its source at the `10.0.20` tag:
+
+1. `RotateImage = true` sends the photo through `ImageProcessor.RotateImageAsync`
+   ([MediaPicker.android.cs, L88-L110](https://github.com/dotnet/maui/blob/10.0.20/src/Essentials/src/MediaPicker/MediaPicker.android.cs#L88-L110)).
+   For any orientation but 1, it copies the bitmap through `matrix.SetRotate(0)`, which turns
+   nothing, then saves it with `Bitmap.Compress`, which writes no EXIF
+   ([ImageProcessor.android.cs, L149-L156](https://github.com/dotnet/maui/blob/10.0.20/src/Essentials/src/MediaPicker/ImageProcessor.android.cs#L149-L156)).
+   The pixels are still sideways, and the tag that said so is gone.
+2. `MaximumWidth/Height` then resize it, and quality 100 makes it a PNG
+   ([ImageProcessor.shared.cs, L197-L206](https://github.com/dotnet/maui/blob/10.0.20/src/Essentials/src/MediaPicker/ImageProcessor.shared.cs#L197-L206)).
+
+So nothing turns the photo twice. Nothing turns it at all.
+
+**Seen on the emulator.** A throwaway app stood in for a phone's camera. It answers
+`IMAGE_CAPTURE` with one photo: the BnF section's mock cover as the emulator's camera took it,
+scaled to 3000×4000, then stored turned 90° (4000×3000) with orientation 6. Since Android 11,
+only pre-installed camera apps get an implicit `IMAGE_CAPTURE`
+([behavior change](https://developer.android.com/about/versions/11/behavior-changes-11#media-capture)),
+unless a device policy controller sets the default camera. So the stand-in made itself a
+test-only device owner and set itself as the camera, then removed both afterwards. Same photo,
+two Release APKs:
+
+| | Before (main) | After (this change) |
+|---|---|---|
+| File from MediaPicker | PNG, 1600×1200, orientation 0, 239 KB | JPEG, 1600×1200, orientation 6, 66 KB |
+| Photo on the scan page | sideways | upright |
+| Query | *Émile est invisible Vincent Cuvellier Ronan Badel* | *Émile est invisible* |
+| *Save by hand* Title, Author | *est invisible*, *Vincent Cuvellier* | *Émile*, *est invisible* |
+
+The screenshots are `docs/e2e/screen-portrait-before.png` and `screen-portrait-after.png`.
+
+- ML Kit reads sideways text, so every word was found before too. What went wrong was the size
+  of the text. A sideways line's box is as tall as the line is long, so the longest lines looked
+  biggest. The query kept the authors' names, and *Save by hand* took the second line of the
+  title for the title.
+- Orientation 0 is what Android's `ExifInterface` reports for a photo with no orientation tag.
+  MediaPicker copied it into the PNG.
+- The after column is what an upright photo gives. The emulator's own camera, on the same APK,
+  gives a 960×1280 JPEG with orientation 1, and the same query, Title and Author.
+- Both runs said *Already on your shelf*: the book was saved in the BnF section, and the offline
+  check compares words, whatever their size.
+
+**The fix**, in `MainPage.xaml.cs`, for Android only:
+
+- `RotateImage = false`. When MediaPicker resizes the photo, it copies the EXIF tags, orientation
+  included (`PreserveMetaData` is on by default,
+  [ImageProcessor.android.cs, L196-L215](https://github.com/dotnet/maui/blob/10.0.20/src/Essentials/src/MediaPicker/ImageProcessor.android.cs#L196-L215)).
+- `CompressionQuality = 90`, so the resized photo stays a JPEG.
+- `InputImage.FromFilePath` applies the tag (step 06), and so does the scan page's `Image`.
+
+iOS keeps `RotateImage = true` and quality 100. Its camera path draws the photo upright whatever
+the options say (`NormalizeOrientation`,
+[MediaPicker.ios.cs, L627-L631](https://github.com/dotnet/maui/blob/10.0.20/src/Essentials/src/MediaPicker/MediaPicker.ios.cs#L627-L631)),
+and with no iPhone here, a change there couldn't be tested.
+
+Result: the Release APK is still 37,651,595 bytes. `dotnet test` passes 14 tests, the Android
+publish has 0 warnings, and logcat shows no crash.

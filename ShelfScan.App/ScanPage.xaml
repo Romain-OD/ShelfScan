@@ -23,7 +23,7 @@
                             <VerticalStackLayout Grid.Column="1" VerticalOptions="Center">
                                 <Label Text="{Binding Book.Title}" FontAttributes="Bold" />
                                 <Label Text="{Binding Book.Author}" FontSize="13" />
-                                <Label Text="{Binding Book.Year}" FontSize="12" TextColor="{StaticResource Gray500}" />
+                                <Label Text="{Binding Details}" FontSize="12" TextColor="{StaticResource Gray500}" />
                             </VerticalStackLayout>
                             <Button Grid.Column="2" Text="{Binding Action}" IsEnabled="{Binding CanAdd}"
                                     Clicked="OnAddClicked" VerticalOptions="Center" />

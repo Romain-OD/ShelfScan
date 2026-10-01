@@ -813,3 +813,173 @@ a gradient and coloured shapes compress less than a flat colour with white lette
 splash is drawn at 192 instead of 128. Images don't depend on trimming or AOT, so every variant
 gains the same amount (both iOS builds grew by exactly 126,096 bytes). The size comparisons from
 steps 10 and 11 still hold, and the README keeps their figures.
+
+## After step 12 · More books: the BnF catalogue
+
+Files: `ShelfScan.Core/BnfClient.cs` (new), `Book.cs` (`WordsInCommon`), `ScanPage.xaml(.cs)`,
+`MainPage.xaml.cs`, `MauiProgram.cs`, tests in `BnfClientTests.cs` and `BookTests.cs` (new), the
+fake handler moved to `Canned.cs`, `docs/e2e/screen-bnf.png` and `emile-est-invisible.png`,
+`README.md`.
+
+The question: Open Library misses many of the books on a French children's shelf. Is there a free
+Amazon API that has them?
+
+**Amazon: no.** The Product Advertising API 5.0 is deprecated, and calls to it now get
+`403 AccessDenied` ([notice](https://affiliate-program.amazon.com/creatorsapi/docs/en-us/paapiv5-deprecation)).
+Its successor, the Creators API, requires an Amazon Associates account with at least 10 qualifying
+sales in the past 30 days, then generated credentials
+([prerequisites](https://affiliate-program.amazon.com/creatorsapi/docs/en-us/introduction)).
+It's built for affiliates who send shoppers to Amazon, and credentials can't stay secret in an
+app anyone can unzip.
+
+**Google Books: not without a key.** All 40 keyless requests in the benchmark below got HTTP 429.
+A key would have to be each user's own, for the same reason.
+
+**The BnF: yes.** The general catalogue of the Bibliothèque nationale de France has a free
+[SRU API](https://api.bnf.fr/fr/api-sru-catalogue-general) with no key. Legal deposit puts nearly
+every book published in France in it. The records are under the Licence Ouverte 2.0: reuse must
+name the source, « Bibliothèque nationale de France », and the date of the last update
+([terms, section 4.2](https://api.bnf.fr/fr/conditions-generales-dutilisation-du-site-bnf-api-et-jeux-de-donnees)).
+
+Measured first: 40 French children's books, each searched the way the cover would give it (title
+and author, punctuation stripped like step 05's query), top 5 results, one request every 1.1 s.
+
+| Catalogue | Right book in the top 5 |
+|---|---|
+| Open Library | 24/40, 18 of them with a cover |
+| Google Books, no key | none: HTTP 429 on all 40 |
+| BnF | 40/40 |
+| Open Library or BnF | 40/40 |
+
+- Open Library's 16 misses: 10 searches returned nothing, and 6 returned other books (originals
+  or other translations, not the French edition).
+- My checker first gave the BnF 38. It read the author from `dc:creator` only, and SamSam credits
+  Serge Bloch as a contributor. It also split *P'tits* at the apostrophe, so *Les p'tits diables*
+  never matched. Both books are in the BnF's answers.
+
+**`any`, not `all`.** In CQL, `all` needs every word of the query in the record, and `any` needs
+one. The BnF's answers come sorted by a relevance score (`mn:score`). On a clean query both find
+the same books. Add one word the cover might also give, a publisher line or a misread word, and
+`all` finds almost nothing:
+
+| BnF search | `all` | `any` |
+|---|---|---|
+| Title and author | 39/40 | 39/40 |
+| + "Gallimard jeunesse" | 6/40 | 36/40 |
+| + "xkcdq" | 0/40 | 39/40 |
+
+*Les P'tits Diables* counts as a miss in every cell, because of the same checker bug.
+
+**The client** (`BnfClient`). One GET with `recordSchema=dublincore&maximumRecords=5` and the
+query `bib.anywhere any "<words>" and bib.doctype any "a"`. Doctype `a` is printed text, so no
+audiobooks, films or scores. A `"` or `\` in the words becomes a space, so nothing can end the
+CQL string early. Each record becomes a `Book`:
+
+- **Key**: the record's ark, like `ark:/12148/cb42724043m`. The shelf stores it the way it
+  stores an Open Library work key.
+- **Title**: the first `dc:title`, cut at ` / ` (who wrote and drew it) or ` (` (an edition
+  note). *Tout ça finira mal / Mr Tan ; [dessins], Miss Prickly* gives *Tout ça finira mal*.
+- **Author**: the first `dc:creator`, or the first `dc:contributor` when there's none (SamSam
+  and T'choupi credit only an adapter or an illustrator). Headings read "Name (dates). Role", so
+  `Bloch, Serge (1956-....). Auteur adapté` becomes `Serge Bloch`.
+- **Year**: `dc:date`, when it's a number.
+- **Updated**: the record's `LastModificationDate`, shown as "BnF, updated 21 Dec 2015". The
+  licence needs that date, so a record without one throws a `FormatException`.
+
+Running the client live on the 40 searches turned up a heading the first regex got wrong. With
+two roles, `Zidi, Claude (1934-....). Réalisateur. Scénariste` became
+`Claude (1934-....). Réalisateur Zidi`. The regex now takes any number of `. Role` parts. Checked
+on the 292 distinct headings from those searches (20 records each): all come out clean, and the 4
+that changed were all fixes. That Astérix record is now in the test.
+
+**Both at once.** `ScanPage` asks the two catalogues in parallel (`Task.WhenAll`) through one
+shared `HttpClient` with a 15 s timeout. If one fails, the other's results still show, with
+"Open Library didn't answer (…)" under the status.
+
+**On the emulator, first run.** The Release APK, with a text-only mock cover as the camera image:
+title and names, no cover art (`docs/e2e/emile-est-invisible.png`). It showed a problem the
+benchmark couldn't. The author lines were under 40% of the title's height, so the query was the
+title alone, *Émile est invisible*. Open Library returned two unrelated books, and the BnF put two
+editions of *Invisible mais vrai* and *Pierre-Émile et son double* above the right book, which came
+sixth of seven.
+
+**Sorted by shared words.** The results are now sorted by `Book.WordsInCommon(query)`: how many
+words of the query are in the title and author, with case, accents and punctuation ignored (the
+same `Text.Words` as the shelf search). `OrderBy` is stable, so ties keep the catalogues' order.
+To check the rule, the lists the app would show (Open Library's 5, then the BnF's 5) were saved
+for the 40 books, searched by title and author and by title only, then sorted offline:
+
+| Search | Right book first, catalogue order | Right book first, sorted |
+|---|---|---|
+| Title and author | 31/40 | 40/40 |
+| Title only | 27/40 | 33/40 |
+
+- No book moved down. By title only, the right book is in the top 3 for 37 books, up from 33.
+- Of the 7 title-only searches that don't put it first, 5 show the right title or series with
+  another name or no author at all. The other 2 are different books with the same title:
+  *La Chasse à l'ours* by Lucien Bodard, *Toc, toc, toc!* by Pierre Macy. Only the author on the
+  cover tells those apart.
+- Three refinements were tried: fewer extra words as a tie-break, Jaccard similarity, and the
+  share of the title's words first. By title only, each put the same 33 first and one more book
+  in the top 3, but moved *Les P'tits Diables* from first to third. The rule stays one number.
+- For this check, a series book's volume title counts as the book: *Tout ça finira mal* is
+  Mortelle Adèle 1.
+
+**On the emulator, second run.** The Release APK with the sort, same cover:
+
+1. The first row is *Émile est invisible*, Vincent Cuvellier, "2012 · BnF, updated 21 Dec 2015"
+   (`docs/e2e/screen-bnf.png`).
+2. **Add** saves it with the key `ark:/12148/cb42724043m`.
+3. Scanning the cover again says *Already on your shelf: Émile est invisible by Vincent
+   Cuvellier*, offline.
+4. **Search** again lists it with a disabled **Owned**.
+
+No crash in logcat.
+
+**Size.** Clean Release builds (`bin` and `obj` deleted first), universal APK:
+
+| Build | APK | Against main |
+|---|---|---|
+| main (step 12) | 37,425,949 bytes (35.69 MB) | |
+| BnF, parsed with `XDocument.LoadAsync` | 37,766,283 bytes (36.02 MB) | +332 KB |
+| **This change: `XDocument.Load`, results sorted** | **37,651,595 bytes (35.91 MB)** | **+220 KB (+0.6%)** |
+
+- The cost is XML. `System.Private.Xml.dll`, already in main's APK, grows from 381,440 to
+  550,912 bytes, and `System.Private.Xml.Linq.dll` (31,232 bytes) is new. Sorting adds 4 KB.
+- `LoadAsync` costs 116 KB more, because trimming keeps the async XML reader. `SendAsync` has
+  already buffered the few KB of the response (`ResponseContentRead` is the default), so the
+  synchronous `Load` doesn't wait on the network.
+
+**Only clean builds compare.** The first measurement said this change made the APK 52 KB
+*smaller* than main. That build was incremental: the APK was missing about 600 Java resources
+(Kotlin metadata, `META-INF` licences and POMs) and still had an icon from another branch's build.
+Rebuilt clean in a separate worktree, main gives 37,425,949 bytes again, to the byte.
+`scripts/measure-android.ps1` deletes `bin` and `obj` before each variant, so step 10's numbers
+stand.
+
+**Size on iOS.** From this change's CI run: the unsigned `ios-arm64` Native AOT publish of step 11.
+
+| Build | `.app` | `.ipa` |
+|---|---|---|
+| main | 14.88 MB (15,603,548 bytes) | 5.98 MB (6,265,745 bytes) |
+| **This change** | **15.81 MB (16,575,452 bytes)** | **6.33 MB (6,632,308 bytes)** |
+| Difference | +949 KB (+6.2%) | +358 KB (+5.9%) |
+
+- More than on Android. Native AOT compiles everything reachable to arm64 code, the XML parser
+  included. The APK carries the parser as IL and precompiles only the methods in the startup
+  profile.
+- main's `.app` came out at 15,603,548 bytes in two CI runs a day apart, so the difference is this
+  change, not the runner.
+
+Limits:
+
+- BnF results have no cover.
+- Each BnF record is one edition, not a work, so owning one edition doesn't mark the others
+  **Owned**. The offline cover check still recognises the book, since it compares words, not keys.
+- The BnF catalogue holds mostly books published in France.
+- A heading with a dot inside the name, like a ministry under "France. Ministère …", keeps only
+  the part before the dot. None of the 292 headings had one.
+
+Result: `dotnet test` passes 14 tests (2 for the BnF client, 4 cases for `WordsInCommon`), locally
+and in CI. The Android Release publish has 0 warnings, and the iOS Native AOT publish still only
+MAUI's 2.

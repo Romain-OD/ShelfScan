@@ -6,12 +6,14 @@ public partial class MainPage : ContentPage
 {
     private readonly Library library;
     private readonly OpenLibraryClient openLibrary;
+    private readonly BnfClient bnf;
 
-    public MainPage(Library library, OpenLibraryClient openLibrary)
+    public MainPage(Library library, OpenLibraryClient openLibrary, BnfClient bnf)
     {
         InitializeComponent();
         this.library = library;
         this.openLibrary = openLibrary;
+        this.bnf = bnf;
     }
 
     protected override void OnAppearing()
@@ -48,7 +50,7 @@ public partial class MainPage : ContentPage
                 await source.CopyToAsync(target);
             }
 
-            await Navigation.PushAsync(new ScanPage(library, openLibrary, path));
+            await Navigation.PushAsync(new ScanPage(library, openLibrary, bnf, path));
         }
         catch (Exception ex)
         {

@@ -1,5 +1,3 @@
-using System.Net;
-using System.Text;
 using ShelfScan.Core;
 
 namespace ShelfScan.Core.Tests;
@@ -17,7 +15,7 @@ public sealed class OpenLibraryClientTests
     [TestMethod]
     public async Task SearchAsync_sends_an_identified_request_and_maps_docs_to_books()
     {
-        Canned handler = new(Response);
+        Canned handler = new(Response, "application/json");
         OpenLibraryClient client = new(new HttpClient(handler));
 
         IReadOnlyList<Book> books = await client.SearchAsync("Moby Dick Herman Melville");
@@ -28,19 +26,5 @@ public sealed class OpenLibraryClientTests
         Assert.AreEqual(OpenLibraryClient.UserAgent, handler.Request?.Headers.UserAgent.ToString());
         Assert.AreEqual(new Book("/works/OL102749W", "Moby Dick", "Herman Melville", 1851, 10544254), books[0]);
         Assert.AreEqual(new Book("/works/OL30237660W", "Moby Dick", "Unknown author"), books[1]);
-    }
-
-    private sealed class Canned(string json) : HttpMessageHandler
-    {
-        public HttpRequestMessage? Request { get; private set; }
-
-        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
-        {
-            Request = request;
-            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
-            {
-                Content = new StringContent(json, Encoding.UTF8, "application/json"),
-            });
-        }
     }
 }

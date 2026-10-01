@@ -21,7 +21,10 @@ public static class MauiProgram
 #endif
 
 		builder.Services.AddSingleton(_ => new Library(Path.Combine(FileSystem.AppDataDirectory, "books.json")));
-		builder.Services.AddSingleton(_ => new OpenLibraryClient(new HttpClient { Timeout = TimeSpan.FromSeconds(15) }));
+		// One HttpClient for both catalogues: one connection pool, one timeout.
+		builder.Services.AddSingleton(_ => new HttpClient { Timeout = TimeSpan.FromSeconds(15) });
+		builder.Services.AddSingleton<OpenLibraryClient>();
+		builder.Services.AddSingleton<BnfClient>();
 		builder.Services.AddSingleton<MainPage>();
 
 		return builder.Build();

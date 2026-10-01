@@ -4,7 +4,8 @@
 
 A .NET MAUI app for the books you own. Photograph a cover and the phone reads the title and
 author on the device (ML Kit on Android, Apple Vision on iOS). It tells you if the book is already
-on your shelf. If not, it looks the book up on [Open Library](https://openlibrary.org) so you can
+on your shelf. If not, it looks the book up on [Open Library](https://openlibrary.org) and in the
+catalogue of the [Bibliothèque nationale de France](https://catalogue.bnf.fr) (BnF) so you can
 add it. It targets Android and iOS, trimmed and compiled ahead of time.
 
 <p>
@@ -26,10 +27,11 @@ iOS builds in CI but has never run: see [Limits](#limits).
    in reading order, without punctuation. You can edit it.
 4. The shelf is checked first, offline. If every word of a book's title and one word of its
    author appear on the cover, the page says *Already on your shelf* and sends no request.
-5. Otherwise Open Library returns up to 5 books. One you already own shows a disabled
-   **Owned** (any edition counts), and **Add** saves the others. For a book Open Library
-   doesn't have, the form below the results saves it by hand, prefilled with the two biggest
-   lines.
+5. Otherwise it searches Open Library and the BnF at the same time, up to 5 books each, and lists
+   first the books that share the most words with the query. One you already own shows a disabled
+   **Owned** (on Open Library, any edition counts), and **Add** saves the others. For a book
+   neither catalogue has, the form below the results saves it by hand, prefilled with the two
+   biggest lines.
 
 The shelf page lists your books, with a search box that filters as you type. The shelf is one
 JSON file, written with System.Text.Json source generation (no reflection). Each add writes a
@@ -37,8 +39,8 @@ temporary file, then renames it over the old one.
 
 | Project | What's in it |
 |---|---|
-| `ShelfScan.Core` | `net10.0`: books, shelf, matching, OCR query, Open Library client |
-| `ShelfScan.Core.Tests` | MSTest, 8 tests, no mocking library |
+| `ShelfScan.Core` | `net10.0`: books, shelf, matching, OCR query, Open Library and BnF clients |
+| `ShelfScan.Core.Tests` | MSTest, 14 tests, no mocking library |
 | `ShelfScan.App` | MAUI, `net10.0-android;net10.0-ios`: two pages, camera, OCR |
 
 ## Build and run
@@ -90,6 +92,9 @@ fresh boot of an x86_64 emulator (Android 16, 4 GB).
 - Full AOT adds 8.29 MB for no measurable startup gain, so ShelfScan keeps the startup profile.
 - Full trimming saves 2.60 MB over the defaults, with the trim analysis on. The defaults turn
   it off, so their 0 warnings prove nothing.
+- These are step 10's numbers. The BnF search, added later, costs 220 KB, most of it for the XML
+  parser, so the APK is now 35.91 MB
+  ([details](docs/build-log.md#after-step-12--more-books-the-bnf-catalogue)).
 
 **iOS** ([step 11](docs/build-log.md#step-11--ios-in-github-actions-step-11-ios-ci)):
 unsigned `ios-arm64` Release builds in GitHub Actions.
@@ -100,7 +105,9 @@ unsigned `ios-arm64` Release builds in GitHub Actions.
 | **ShelfScan: Native AOT** | **14.88 MB** | **5.98 MB** | **1:57 to 3:29** |
 
 The `.app` is 3× smaller and the `.ipa` 2.6× smaller. The publish was 2.6× to 4.4× faster,
-depending on the run.
+depending on the run. These are step 11's numbers. The BnF search, added later, makes the Native
+AOT `.app` 15.81 MB and the `.ipa` 6.33 MB (+358 KB)
+([details](docs/build-log.md#after-step-12--more-books-the-bnf-catalogue)).
 
 **Warnings.** ShelfScan's own code has none, on either platform. The iOS publish shows 2, from
 MAUI 10.0.20's HybridWebView, which ShelfScan doesn't use. MAUI fixes them in .NET 11. Until then
@@ -114,15 +121,37 @@ they stay visible here instead of being silenced
 - The Android numbers come from an emulator, not a phone.
 - The query is a guess based on text size. Stylised covers can fool it: edit the query, or save
   the book by hand.
+- BnF results have no cover, and the BnF holds mostly books published in France.
+- A BnF result is one edition: owning it doesn't mark the book's other editions **Owned**. The
+  offline check still recognises the cover, since it compares words.
 - On a real Android phone, a sideways photo might be rotated twice (by MediaPicker, then by
   ML Kit). The emulator's photos arrive upright, so that path isn't tested.
 - Each add rewrites the whole shelf file. The code notes to move to SQLite past about 10,000
   books. There's no edit or delete yet.
 
+## Book data
+
+Two free catalogues, searched at the same time, neither needing a key:
+
+- [Open Library](https://openlibrary.org/developers/api), with covers.
+- The general catalogue of the Bibliothèque nationale de France, through its
+  [SRU API](https://api.bnf.fr/fr/api-sru-catalogue-general). Legal deposit puts nearly every book
+  published in France in it. Its records are under the
+  [Licence Ouverte 2.0](https://www.etalab.gouv.fr/wp-content/uploads/2017/04/ETALAB-Licence-Ouverte-v2.0.pdf),
+  which asks to name the source and the date of the last update, so each BnF result shows both.
+
+On 40 French children's books, Open Library found 24 and the BnF all 40
+([benchmark](docs/build-log.md#after-step-12--more-books-the-bnf-catalogue)). Amazon's API needs
+an Amazon Associates account with recent sales, and Google Books a key: credentials that can't
+stay secret in an app.
+
+<img src="docs/e2e/screen-bnf.png" width="250" alt="Scanning Émile est invisible: the first result is the book, by Vincent Cuvellier, 2012, BnF, updated 21 Dec 2015, above other BnF records and an unrelated Open Library result">
+
 ## How it was built
 
 Twelve steps, each one commit and one tag, from `step-01-scaffold` to `step-12-docs`.
-[docs/build-log.md](docs/build-log.md) records what was run, decided and measured at each step.
+[docs/build-log.md](docs/build-log.md) records what was run, decided and measured at each step,
+then the changes made after step 12.
 
 ## License
 

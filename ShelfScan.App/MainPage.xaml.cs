@@ -33,9 +33,13 @@ public partial class MainPage : ContentPage
         {
             FileResult? photo = await MediaPicker.Default.CapturePhotoAsync(new MediaPickerOptions
             {
-                RotateImage = true, // upright pixels for both OCR engines
                 MaximumWidth = 1600, // plenty for cover text, and OCR runs faster
                 MaximumHeight = 1600,
+                // Android: MAUI 10.0.20's RotateImage strips the EXIF orientation and leaves the pixels
+                // sideways. Keep the tag instead, in a JPEG (quality 95+ makes a PNG): ML Kit and the
+                // preview both apply it.
+                RotateImage = !OperatingSystem.IsAndroid(), // iOS: upright pixels for Vision
+                CompressionQuality = OperatingSystem.IsAndroid() ? 90 : 100,
             });
             if (photo is null)
             {

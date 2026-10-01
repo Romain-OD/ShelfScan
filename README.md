@@ -163,8 +163,9 @@ they stay visible here instead of being silenced
 - BnF results have no cover, and the BnF holds mostly books published in France.
 - A BnF result is one edition: owning it doesn't mark the book's other editions **Owned**. The
   offline check still recognises the cover, since it compares words.
-- On a real Android phone, a sideways photo might be rotated twice (by MediaPicker, then by
-  ML Kit). The emulator's photos arrive upright, so that path isn't tested.
+- Photos saved the way most phones save them, pixels sideways plus an EXIF rotation, are tested
+  on the emulator with a stand-in camera app, not on a phone
+  ([details](docs/build-log.md#after-step-12--portrait-photos-on-android)).
 - Each add rewrites the whole shelf file. The code notes to move to SQLite past about 10,000
   books. There's no edit or delete yet.
 

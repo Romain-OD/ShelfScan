@@ -749,6 +749,71 @@ gives the range.
 Result: all four CI runs are green, with 8 tests passing in every job. Locally, `dotnet test`
 passes 8 tests, and the solution builds with only the known no-Mac iOS warning.
 
+## After step 12 · A logo of its own
+
+Added after the twelve steps, in its own pull request, so there's no step tag.
+
+Files: `ShelfScan.App/Resources/AppIcon/appicon.svg` and `appiconfg.svg` (redrawn),
+`ShelfScan.App/Resources/Splash/splash.svg` (deleted), `ShelfScan.App/ShelfScan.App.csproj`.
+
+Until now the app used the template's icon and splash: the .NET logo on #512BD4. The new logo
+is a camera viewfinder around a shelf of books, crossed by a scan line. The background is a
+violet gradient (#6C47F5 to #3B1BB0) around #512BD4, so the icon, the splash screen, the status
+bar and the **Scan a book** button still belong together.
+
+Decisions:
+
+- **Drawn on Android's adaptive-icon grid.** `appiconfg.svg` has a 108-unit viewBox, like an
+  adaptive icon layer (108 dp). Launchers crop that layer to a circle, a squircle or a square,
+  and only a circle 66 units wide in the middle is never cut. Every shape fits in it: the
+  farthest point, the outside of a bracket corner, is 32.6 units from the centre.
+- **The same file is the themed icon.** MAUI writes
+  `<monochrome android:drawable="@mipmap/appicon_foreground" />` into
+  `mipmap-anydpi-v26/appicon.xml`, so on Android 13+ with themed icons on, the launcher paints
+  the foreground in one colour and only its shape counts. A first draft had a translucent glow
+  under the scan line, which came out as a smudge. Now every shape is opaque, with gaps between
+  the books.
+- **iOS scales the foreground up.** iOS shows the whole square, where the safe-zone artwork
+  covers only 47% of the width. The docs present `ForegroundScale` as an Android option, but
+  Resizetizer applies it to every icon it composites (`SkiaSharpAppIconTools.cs` in
+  dotnet/maui), iOS included. So the `MauiIcon` item sets it for iOS only, as conditional
+  metadata:
+
+  ```xml
+  <MauiIcon Include="Resources\AppIcon\appicon.svg" ForegroundFile="Resources\AppIcon\appiconfg.svg" Color="#512BD4">
+    <ForegroundScale Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'ios'">1.3</ForegroundScale>
+  </MauiIcon>
+  ```
+
+  Side by side, 1.25 still looked small and 1.4 crowded the rounded corners.
+- **The splash screen uses the icon foreground.** The first version cropped the artwork so it
+  filled the splash image. On the Android 16 emulator, the corners of the viewfinder were cut
+  off. Since Android 12, the system splash screen masks its icon to a circle, the way launchers
+  mask adaptive icons. MAUI's `Maui.SplashTheme` sets `android:windowSplashScreenAnimatedIcon`
+  to its splash drawable, and on Android 12+ that drawable (`drawable-v31/maui_splash_image.xml`)
+  stretches the splash image over 108 dp. So the splash needs the adaptive icon's safe zone too,
+  and `MauiSplashScreen` now points at `appiconfg.svg` instead of a copy of it. `BaseSize` goes
+  from 128 to 192 because iOS and older Android draw the image at that size, padding included:
+  the viewfinder comes out about 89 points wide there, close to the 88 dp measured on the
+  Android 16 splash.
+
+Result: a clean `dotnet publish ShelfScan.App -f net10.0-android -c Release` has 0 warnings.
+Screenshots from the Android 16 emulator show the new launcher icon, the themed home-screen
+icon, and the whole viewfinder on the splash screen. Themed icons were switched on for the
+check through the launcher's settings provider (`adb root`, then
+`adb shell content update --uri content://com.google.android.apps.nexuslauncher.grid_control/icon_themed --bind boolean_value:b:true`),
+and off again afterwards. On Windows, `dotnet build ShelfScan.App -f net10.0-ios -c Release`
+generates the iOS icons with only the known no-Mac warning: the 1024 px App Store icon is fully
+opaque and has the 1.3× foreground.
+
+Size, measured against `main`: the Release APK grows by 92 KB (35.69 to 35.78 MB), and the iOS
+`.app` by 123 KB in the pull request's CI run (Native AOT: `.app` 14.88 to 15.00 MB, `.ipa` 5.98
+to 6.09 MB). Inside the APK, all of it is the icon and splash images, 41 KB before and 129 KB now:
+a gradient and coloured shapes compress less than a flat colour with white letters, and the
+splash is drawn at 192 instead of 128. Images don't depend on trimming or AOT, so every variant
+gains the same amount (both iOS builds grew by exactly 126,096 bytes). The size comparisons from
+steps 10 and 11 still hold, and the README keeps their figures.
+
 ## After step 12 · More books: the BnF catalogue
 
 Files: `ShelfScan.Core/BnfClient.cs` (new), `Book.cs` (`WordsInCommon`), `ScanPage.xaml(.cs)`,

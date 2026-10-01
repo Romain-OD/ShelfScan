@@ -52,10 +52,15 @@
 
 	<ItemGroup>
 		<!-- App Icon -->
-		<MauiIcon Include="Resources\AppIcon\appicon.svg" ForegroundFile="Resources\AppIcon\appiconfg.svg" Color="#512BD4" />
+		<MauiIcon Include="Resources\AppIcon\appicon.svg" ForegroundFile="Resources\AppIcon\appiconfg.svg" Color="#512BD4">
+			<!-- The foreground is drawn for Android's adaptive-icon safe zone. iOS shows the
+			     whole square, so the same artwork is scaled up there. -->
+			<ForegroundScale Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'ios'">1.3</ForegroundScale>
+		</MauiIcon>
 
-		<!-- Splash Screen -->
-		<MauiSplashScreen Include="Resources\Splash\splash.svg" Color="#512BD4" BaseSize="128,128" />
+		<!-- Splash Screen: the icon foreground, since Android 12+ masks splash icons to the same
+		     circle as adaptive icons. BaseSize makes up for its padding on iOS and older Android. -->
+		<MauiSplashScreen Include="Resources\AppIcon\appiconfg.svg" Color="#512BD4" BaseSize="192,192" />
 
 		<!-- Images -->
 		<MauiImage Include="Resources\Images\*" />

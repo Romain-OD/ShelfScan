@@ -1,5 +1,6 @@
 # No Mac on the dev machine, so CI proves iOS: unit tests, then an unsigned Release publish for a
 # device (ios-arm64), twice: ShelfScan as configured (Native AOT) and the MAUI defaults (Mono AOT).
+# The Native AOT .ipa is kept as an artifact, to sign and install yourself (README, "iPhone").
 name: ios
 
 on:
@@ -23,6 +24,7 @@ jobs:
           # restore hands it to ShelfScan.Core (net10.0) too, which fails with NETSDK1203.
           - build: Native AOT (ShelfScan)
             props: ""
+            upload: true
           # Same "defaults" as scripts/measure-android.ps1: no analyzers, partial trimming.
           - build: Mono AOT (defaults)
             props: "-p:PublishAot=false -p:IsAotCompatible=false"
@@ -73,3 +75,12 @@ jobs:
               echo; echo '```'; echo "$warnings"; echo '```'
             fi
           } | tee -a "$GITHUB_STEP_SUMMARY"
+
+      # archive: false uploads the file itself, not a zip, so the artifact is named ShelfScan.App.ipa.
+      - name: Keep the unsigned .ipa
+        if: matrix.upload
+        uses: actions/upload-artifact@v7
+        with:
+          path: ShelfScan.App/bin/Release/net10.0-ios/ios-arm64/publish/ShelfScan.App.ipa
+          archive: false
+          if-no-files-found: error

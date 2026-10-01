@@ -60,7 +60,8 @@ OpenJDK 21. Trimming and AOT only happen in Release, so test a Release build, no
 
 iOS needs a Mac with Xcode 26.6. There's no Mac here, so [GitHub Actions](.github/workflows/ios.yml)
 runs the tests and publishes an unsigned `ios-arm64` app on every push to `main` and every pull
-request. The workflow shows the publish command.
+request. The workflow shows the publish command, and keeps the Native AOT `.ipa` for
+[installing on an iPhone](#iphone).
 
 To measure Android size and startup yourself, start an emulator and run the script. It
 publishes four variants, then times 20 cold starts of each:
@@ -68,6 +69,44 @@ publishes four variants, then times 20 cold starts of each:
 ```powershell
 .\scripts\measure-android.ps1 -Adb "$env:LOCALAPPDATA\Android\Sdk\platform-tools\adb.exe"
 ```
+
+## Install on your phone
+
+### Android
+
+The Release publish above writes `dev.romain.shelfscan-Signed.apk`, for Android 6.0 or later on
+a 64-bit ARM phone (or an x86_64 emulator). Install it one of two ways:
+
+- **USB.** Turn on USB debugging in the phone's Developer options, plug it in, accept the
+  prompt, then run the `adb install -r` line above.
+- **No cable.** Copy the APK to the phone and open it. Android first asks you to let the app
+  that opens it (a file manager, a browser) install unknown apps.
+
+The APK is signed with the debug key of the machine that built it. An APK built on another
+machine can't update it: uninstall first, which deletes your shelf. Google Play needs your own
+key ([Microsoft's guide](https://learn.microsoft.com/dotnet/maui/android/deployment/publish-cli)).
+
+### iPhone
+
+An iPhone only runs apps signed through an Apple account, and this repo has no signing secrets.
+So the [ios workflow](.github/workflows/ios.yml) keeps the unsigned Native AOT build: open a
+green run while signed in to GitHub, and download `ShelfScan.App.ipa` under **Artifacts**. Then
+sign and install it one of three ways:
+
+- **A free Apple ID, no Mac.** [Sideloadly](https://sideloadly.io) signs the `.ipa` with your
+  Apple ID and installs it over USB. On Windows it needs the web versions of iTunes and iCloud,
+  not the Microsoft Store ones. It's a third-party tool that asks for your Apple ID password, so
+  a secondary Apple ID is safer. With a free account the app runs for 7 days, then has to be
+  signed again (Sideloadly can do it for you). On the phone, turn on **Settings > Privacy &
+  Security > Developer Mode** (iOS 16 and later), then trust your Apple ID under
+  **Settings > General > VPN & Device Management**.
+- **A Mac with Xcode 26.6.** Provision the phone, then run the app on it from the command line
+  ([Microsoft's guide](https://learn.microsoft.com/dotnet/maui/ios/cli#launch-the-app-on-a-device)).
+- **A paid Apple Developer Program membership.** CI could sign the app and upload it to
+  TestFlight, with the certificate, provisioning profile and App Store Connect key as repository
+  secrets. That isn't set up.
+
+Whichever you pick, it's the app's first run on iOS (see [Limits](#limits)).
 
 ## Trimming and AOT, measured
 

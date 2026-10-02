@@ -12,6 +12,13 @@ public sealed record Book(string Key, string Title, string Author, int? Year = n
     [JsonIgnore]
     public string? CoverUrl => CoverId is int id ? $"https://covers.openlibrary.org/b/id/{id}-M.jpg" : null;
 
+    /// <summary>
+    /// The identifier the delete confirmation asks you to retype: the ISBN when the key holds one
+    /// (a BnF ark ends in the ISBN-10 or ISBN-13 of its edition), the Open Library work key otherwise.
+    /// </summary>
+    [JsonIgnore]
+    public string Isbn => Key.StartsWith("ark:/12148/cb", StringComparison.Ordinal) ? Key["ark:/12148/cb".Length..] : Key;
+
     /// <summary>How many words of the search are in the title or author, case, accents and punctuation ignored.</summary>
     public int WordsInCommon(string search)
     {

@@ -16,13 +16,14 @@
             <CollectionView.ItemTemplate>
                 <!-- x:DataType makes these compiled bindings: no reflection, safe under NativeAOT. -->
                 <DataTemplate x:DataType="core:Book">
-                    <Grid ColumnDefinitions="56,*" ColumnSpacing="12" Padding="0,6">
+                    <Grid ColumnDefinitions="56,*,Auto" ColumnSpacing="12" Padding="0,6">
                         <Image Source="{Binding CoverUrl}" HeightRequest="84" Aspect="AspectFit" />
                         <VerticalStackLayout Grid.Column="1" VerticalOptions="Center">
                             <Label Text="{Binding Title}" FontAttributes="Bold" FontSize="16" />
                             <Label Text="{Binding Author}" />
                             <Label Text="{Binding Year}" FontSize="12" TextColor="{StaticResource Gray500}" />
                         </VerticalStackLayout>
+                        <Button Grid.Column="2" Text="Delete" Clicked="OnDeleteClicked" VerticalOptions="Center" />
                     </Grid>
                 </DataTemplate>
             </CollectionView.ItemTemplate>

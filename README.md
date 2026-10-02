@@ -33,8 +33,9 @@ iOS builds in CI but has never run: see [Limits](#limits).
    neither catalogue has, the form below the results saves it by hand, prefilled with the two
    biggest lines.
 
-The shelf page lists your books, with a search box that filters as you type. The shelf is one
-JSON file, written with System.Text.Json source generation (no reflection). Each add writes a
+The shelf page lists your books, with a search box that filters as you type. **Delete** asks why
+(“I sold this book”) and makes you retype the ISBN to confirm. The shelf is one
+JSON file, written with System.Text.Json source generation (no reflection). Each change writes a
 temporary file, then renames it over the old one.
 
 | Project | What's in it |
@@ -167,7 +168,7 @@ they stay visible here instead of being silenced
   on the emulator with a stand-in camera app, not on a phone
   ([details](docs/build-log.md#after-step-12--portrait-photos-on-android)).
 - Each add rewrites the whole shelf file. The code notes to move to SQLite past about 10,000
-  books. There's no edit or delete yet.
+  books. There's no edit yet.
 
 ## Book data
 

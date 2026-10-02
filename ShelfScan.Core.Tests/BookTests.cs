@@ -13,4 +13,11 @@ public sealed class BookTests
     [DataRow("Émile est invisible Vincent Cuvellier Ronan Badel", "Émile est invisible", "Vincent Cuvellier", 5)]
     public void WordsInCommon_counts_search_words_found_in_title_and_author(string search, string title, string author, int expected) =>
         Assert.AreEqual(expected, new Book("ark:/12148/cb0", title, author).WordsInCommon(search));
+
+    [TestMethod]
+    [DataRow("ark:/12148/cb47569857w", "47569857w")] // a BnF ark ends in the ISBN of its edition
+    [DataRow("/works/OL45804W", "/works/OL45804W")] // Open Library works have no ISBN: the key stands in
+    [DataRow("local:0123456789abcdef", "local:0123456789abcdef")]
+    public void Isbn_is_the_ark_suffix_or_the_whole_key(string key, string expected) =>
+        Assert.AreEqual(expected, new Book(key, "Fantastic Mr Fox", "Roald Dahl").Isbn);
 }

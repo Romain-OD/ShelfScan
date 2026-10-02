@@ -56,4 +56,19 @@ public sealed class LibraryTests
         Assert.AreEqual("Moby Dick", library.Search("moby MEL").Single().Title);
         Assert.AreEqual(2, library.Search("").Count());
     }
+
+    [TestMethod]
+    public async Task Removed_books_leave_the_shelf_file()
+    {
+        Library library = new(path);
+        await library.AddAsync(new Book("/works/OL1", "Le Petit Prince", "Antoine de Saint-Exupéry"));
+        await library.AddAsync(new Book("/works/OL2", "Moby Dick", "Herman Melville"));
+
+        Assert.IsTrue(await library.RemoveAsync("/works/OL1"));
+        Assert.IsFalse(await library.RemoveAsync("/works/OL1"), "already gone");
+
+        Library reopened = new(path);
+        Assert.AreEqual("Moby Dick", reopened.Books.Single().Title);
+        Assert.IsFalse(reopened.Owns("/works/OL1"));
+    }
 }

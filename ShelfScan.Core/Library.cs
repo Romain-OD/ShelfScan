@@ -44,6 +44,23 @@ public sealed class Library(string path)
     public async Task AddAsync(Book book)
     {
         books.Add(book);
+        await SaveAsync();
+    }
+
+    /// <summary>Take a book off the shelf. False when no book has this key.</summary>
+    public async Task<bool> RemoveAsync(string key)
+    {
+        if (books.RemoveAll(b => b.Key == key) == 0)
+        {
+            return false;
+        }
+
+        await SaveAsync();
+        return true;
+    }
+
+    private async Task SaveAsync()
+    {
         string temp = path + ".tmp";
         await File.WriteAllTextAsync(temp, JsonSerializer.Serialize(books, ShelfJson.Default.ListBook));
         // Write aside, then swap in one rename: a crash mid-write never leaves a half-written shelf.
